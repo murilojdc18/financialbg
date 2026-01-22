@@ -1,9 +1,25 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { PageContainer } from "@/components/layout/PageContainer";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, User, Calendar, Percent, Clock, DollarSign, Calculator } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
+import {
+  ArrowLeft,
+  User,
+  Calendar,
+  Percent,
+  Clock,
+  DollarSign,
+  Calculator,
+  Mail,
+  Phone,
+  MapPin,
+  FileText,
+  Building2,
+  CreditCard,
+  Shield,
+} from "lucide-react";
 import { initialMockOperations } from "@/data/mock-operations";
 import { initialMockClients } from "@/data/mock-clients";
 import { formatCurrency, formatPercent, calculateLoan } from "@/lib/loan-calculator";
@@ -62,7 +78,7 @@ export default function OperacaoDetalhes() {
   return (
     <PageContainer
       title={`Operação ${operation.id}`}
-      description={`Detalhes da operação de ${operation.type.toLowerCase()}`}
+      description={`Detalhes completos da operação de ${operation.type.toLowerCase()}`}
     >
       <div className="space-y-6">
         {/* Back button */}
@@ -71,78 +87,189 @@ export default function OperacaoDetalhes() {
           Voltar
         </Button>
 
-        {/* Operation Info Cards */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        {/* Client and Operation Info - Two Column Layout */}
+        <div className="grid gap-6 lg:grid-cols-2">
+          {/* Client Card */}
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Cliente</CardTitle>
-              <User className="h-4 w-4 text-muted-foreground" />
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <User className="h-5 w-5 text-primary" />
+                <CardTitle>Dados do Cliente</CardTitle>
+              </div>
+              <CardDescription>Informações do cliente vinculado à operação</CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="text-lg font-semibold">{client?.name || "—"}</div>
-              <p className="text-xs text-muted-foreground">{client?.document || "Sem documento"}</p>
+            <CardContent className="space-y-4">
+              {client ? (
+                <>
+                  <div className="flex items-start gap-3">
+                    <Building2 className="h-4 w-4 text-muted-foreground mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Nome / Razão Social</p>
+                      <p className="font-semibold">{client.name}</p>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  <div className="flex items-start gap-3">
+                    <FileText className="h-4 w-4 text-muted-foreground mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Documento (CPF/CNPJ)</p>
+                      <p className="font-medium">{client.document || "Não informado"}</p>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  <div className="flex items-start gap-3">
+                    <Mail className="h-4 w-4 text-muted-foreground mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Email</p>
+                      <p className="font-medium">{client.email || "Não informado"}</p>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  <div className="flex items-start gap-3">
+                    <Phone className="h-4 w-4 text-muted-foreground mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Telefone</p>
+                      <p className="font-medium">{client.phone || "Não informado"}</p>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  <div className="flex items-start gap-3">
+                    <MapPin className="h-4 w-4 text-muted-foreground mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Endereço</p>
+                      <p className="font-medium">{client.address || "Não informado"}</p>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <p className="text-muted-foreground text-center py-4">
+                  Cliente não encontrado
+                </p>
+              )}
             </CardContent>
           </Card>
 
+          {/* Operation Card */}
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Valor Principal</CardTitle>
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <CreditCard className="h-5 w-5 text-primary" />
+                  <CardTitle>Dados da Operação</CardTitle>
+                </div>
+                <Badge variant={status.variant}>{status.label}</Badge>
+              </div>
+              <CardDescription>Informações detalhadas do empréstimo</CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="text-lg font-semibold">{formatCurrency(operation.principal)}</div>
-              <p className="text-xs text-muted-foreground">Financiado</p>
-            </CardContent>
-          </Card>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex items-start gap-3">
+                  <FileText className="h-4 w-4 text-muted-foreground mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">ID da Operação</p>
+                    <p className="font-semibold">{operation.id}</p>
+                  </div>
+                </div>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Taxa de Juros</CardTitle>
-              <Percent className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-lg font-semibold">{formatPercent(operation.interestRate)} a.m.</div>
-              <p className="text-xs text-muted-foreground">
-                {formatPercent(loanResult.annualRate)} a.a.
-              </p>
-            </CardContent>
-          </Card>
+                <div className="flex items-start gap-3">
+                  <Calendar className="h-4 w-4 text-muted-foreground mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Data de Criação</p>
+                    <p className="font-medium">{format(operation.createdAt, "dd/MM/yyyy")}</p>
+                  </div>
+                </div>
+              </div>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Status</CardTitle>
-              <Clock className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <Badge variant={status.variant} className="text-sm">
-                {status.label}
-              </Badge>
-              <p className="text-xs text-muted-foreground mt-1">
-                Criada em {format(operation.createdAt, "dd/MM/yyyy")}
-              </p>
+              <Separator />
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex items-start gap-3">
+                  <DollarSign className="h-4 w-4 text-muted-foreground mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Valor Principal</p>
+                    <p className="font-semibold text-lg">{formatCurrency(operation.principal)}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <Percent className="h-4 w-4 text-muted-foreground mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Taxa de Juros</p>
+                    <p className="font-semibold">{formatPercent(operation.interestRate)} a.m.</p>
+                    <p className="text-xs text-muted-foreground">{formatPercent(loanResult.annualRate)} a.a.</p>
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex items-start gap-3">
+                  <Clock className="h-4 w-4 text-muted-foreground mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Prazo</p>
+                    <p className="font-semibold">{operation.termMonths} meses</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <Calculator className="h-4 w-4 text-muted-foreground mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Sistema de Amortização</p>
+                    <p className="font-semibold">{operation.amortizationType.toUpperCase()}</p>
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="flex items-start gap-3">
+                <Shield className="h-4 w-4 text-muted-foreground mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Taxas Adicionais</p>
+                  <p className="font-medium text-muted-foreground">Nenhuma taxa adicional cadastrada</p>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </div>
 
         {/* Summary Cards */}
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Prazo</CardTitle>
-              <Calendar className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium">1ª Parcela</CardTitle>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{operation.termMonths} meses</div>
-              <p className="text-xs text-muted-foreground">
-                Sistema {operation.amortizationType.toUpperCase()}
-              </p>
+              <div className="text-2xl font-bold">{formatCurrency(loanResult.firstInstallment)}</div>
+              <p className="text-xs text-muted-foreground">Valor inicial</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Parcela Média</CardTitle>
+              <Calculator className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{formatCurrency(loanResult.averageInstallment)}</div>
+              <p className="text-xs text-muted-foreground">Média mensal</p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total de Juros</CardTitle>
-              <Calculator className="h-4 w-4 text-muted-foreground" />
+              <Percent className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-warning">
@@ -163,9 +290,7 @@ export default function OperacaoDetalhes() {
               <div className="text-2xl font-bold text-primary">
                 {formatCurrency(loanResult.totalPaid)}
               </div>
-              <p className="text-xs text-muted-foreground">
-                1ª parcela: {formatCurrency(loanResult.firstInstallment)}
-              </p>
+              <p className="text-xs text-muted-foreground">Principal + Juros</p>
             </CardContent>
           </Card>
         </div>
