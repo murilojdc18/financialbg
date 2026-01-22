@@ -72,14 +72,17 @@ export function useMarkAsPaid() {
       id, 
       paid_at, 
       payment_method, 
-      notes 
+      notes,
+      amount
     }: { 
       id: string; 
       paid_at: string; 
       payment_method: PaymentMethod; 
       notes?: string;
+      amount: number;
     }) => {
-      const { data, error } = await supabase
+      // 1. Atualizar receivable
+      const { data: receivable, error: receivableError } = await supabase
         .from('receivables')
         .update({ 
           status: 'PAGO', 
@@ -91,11 +94,29 @@ export function useMarkAsPaid() {
         .select()
         .single();
       
-      if (error) throw error;
-      return data as DbReceivable;
+      if (receivableError) throw receivableError;
+
+      // 2. Inserir registro em payments
+      const { error: paymentError } = await supabase
+        .from('payments')
+        .insert({
+          receivable_id: id,
+          amount,
+          paid_at,
+          method: payment_method,
+          notes
+        });
+      
+      if (paymentError) {
+        console.error('Erro ao inserir payment:', paymentError);
+        // Não falha a operação se payment falhar
+      }
+
+      return receivable as DbReceivable;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['receivables'] });
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
       toast({ title: 'Pagamento registrado com sucesso!' });
     },
     onError: (error) => {

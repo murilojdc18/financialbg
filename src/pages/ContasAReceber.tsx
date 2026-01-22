@@ -84,6 +84,7 @@ export default function ContasAReceber() {
       paid_at: data.paidAt.toISOString(),
       payment_method: data.paymentMethod,
       notes: data.notes,
+      amount: Number(selectedReceivable.amount),
     });
 
     setDialogOpen(false);
