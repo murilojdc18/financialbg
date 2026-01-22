@@ -1,4 +1,4 @@
-import { Client } from "@/types/client";
+import { DbClient } from "@/types/database";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -9,12 +9,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Loader2 } from "lucide-react";
 
 interface DeleteClientDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  client: Client | null;
+  client: DbClient | null;
   onConfirm: () => void;
+  isLoading?: boolean;
 }
 
 export function DeleteClientDialog({
@@ -22,6 +24,7 @@ export function DeleteClientDialog({
   onOpenChange,
   client,
   onConfirm,
+  isLoading = false,
 }: DeleteClientDialogProps) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -34,11 +37,13 @@ export function DeleteClientDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogCancel disabled={isLoading}>Cancelar</AlertDialogCancel>
           <AlertDialogAction
             onClick={onConfirm}
+            disabled={isLoading}
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
           >
+            {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Excluir
           </AlertDialogAction>
         </AlertDialogFooter>

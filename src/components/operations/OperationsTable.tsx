@@ -9,38 +9,32 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Operation, OperationStatus } from "@/types/operation";
-import { Client } from "@/types/client";
+import { DbOperationWithClient, OperationStatus } from "@/types/database";
 import { formatCurrency, formatPercent } from "@/lib/loan-calculator";
-import { format } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { useNavigate } from "react-router-dom";
 
 interface OperationsTableProps {
-  operations: Operation[];
-  clients: Client[];
+  operations: DbOperationWithClient[];
+  clients: { id: string; name: string }[];
 }
 
 const statusConfig: Record<
   OperationStatus,
   { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
 > = {
-  ativa: { label: "Ativa", variant: "default" },
-  quitada: { label: "Quitada", variant: "secondary" },
-  cancelada: { label: "Cancelada", variant: "destructive" },
+  ATIVA: { label: "Ativa", variant: "default" },
+  QUITADA: { label: "Quitada", variant: "secondary" },
+  CANCELADA: { label: "Cancelada", variant: "destructive" },
 };
 
-const amortizationLabels: Record<string, string> = {
-  price: "Price",
-  sac: "SAC",
+const systemLabels: Record<string, string> = {
+  PRICE: "Price",
+  SAC: "SAC",
 };
 
-export function OperationsTable({ operations, clients }: OperationsTableProps) {
+export function OperationsTable({ operations }: OperationsTableProps) {
   const navigate = useNavigate();
-
-  const getClientName = (clientId: string) => {
-    const client = clients.find((c) => c.id === clientId);
-    return client?.name || "Cliente não encontrado";
-  };
 
   const handleViewDetails = (operationId: string) => {
     navigate(`/operacoes/${operationId}`);
@@ -68,28 +62,28 @@ export function OperationsTable({ operations, clients }: OperationsTableProps) {
             return (
               <TableRow key={operation.id}>
                 <TableCell className="font-mono text-sm">
-                  {operation.id}
+                  {operation.id.slice(0, 8)}
                 </TableCell>
                 <TableCell className="font-medium">
-                  {getClientName(operation.clientId)}
+                  {operation.clients?.name || "—"}
                 </TableCell>
                 <TableCell className="text-right">
-                  {formatCurrency(operation.principal)}
+                  {formatCurrency(Number(operation.principal))}
                 </TableCell>
                 <TableCell className="text-right">
-                  {formatPercent(operation.interestRate)} a.m.
+                  {formatPercent(Number(operation.rate_monthly) * 100)} a.m.
                 </TableCell>
                 <TableCell className="text-center">
-                  {operation.termMonths} meses
+                  {operation.term_months} meses
                 </TableCell>
                 <TableCell className="text-center">
-                  {amortizationLabels[operation.amortizationType]}
+                  {systemLabels[operation.system]}
                 </TableCell>
                 <TableCell className="text-center">
                   <Badge variant={status.variant}>{status.label}</Badge>
                 </TableCell>
                 <TableCell>
-                  {format(operation.createdAt, "dd/MM/yyyy")}
+                  {format(parseISO(operation.created_at), "dd/MM/yyyy")}
                 </TableCell>
                 <TableCell className="text-right">
                   <Button

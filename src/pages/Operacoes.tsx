@@ -3,14 +3,14 @@ import { PageContainer } from "@/components/layout/PageContainer";
 import { OperationsFilters } from "@/components/operations/OperationsFilters";
 import { OperationsTable } from "@/components/operations/OperationsTable";
 import { EmptyOperationsState } from "@/components/operations/EmptyOperationsState";
-import { initialMockClients } from "@/data/mock-clients";
-import { initialMockOperations } from "@/data/mock-operations";
-import { Operation } from "@/types/operation";
-import { Client } from "@/types/client";
+import { useClients } from "@/hooks/useClients";
+import { useOperations } from "@/hooks/useOperations";
+import { Loader2 } from "lucide-react";
+import { parseISO } from "date-fns";
 
 export default function Operacoes() {
-  const [clients] = useState<Client[]>(initialMockClients);
-  const [operations] = useState<Operation[]>(initialMockOperations);
+  const { data: clients = [], isLoading: loadingClients } = useClients();
+  const { data: operations = [], isLoading: loadingOperations, error } = useOperations();
 
   // Filters state
   const [selectedClientId, setSelectedClientId] = useState<string>("all");
@@ -21,7 +21,7 @@ export default function Operacoes() {
   const filteredOperations = useMemo(() => {
     return operations.filter((operation) => {
       // Filter by client
-      if (selectedClientId !== "all" && operation.clientId !== selectedClientId) {
+      if (selectedClientId !== "all" && operation.client_id !== selectedClientId) {
         return false;
       }
 
@@ -31,14 +31,15 @@ export default function Operacoes() {
       }
 
       // Filter by date range
-      if (startDate && operation.createdAt < startDate) {
+      const createdAt = parseISO(operation.created_at);
+      if (startDate && createdAt < startDate) {
         return false;
       }
 
       if (endDate) {
         const endOfDay = new Date(endDate);
         endOfDay.setHours(23, 59, 59, 999);
-        if (operation.createdAt > endOfDay) {
+        if (createdAt > endOfDay) {
           return false;
         }
       }
@@ -59,6 +60,28 @@ export default function Operacoes() {
     selectedStatus !== "all" ||
     startDate !== undefined ||
     endDate !== undefined;
+
+  const isLoading = loadingClients || loadingOperations;
+
+  if (isLoading) {
+    return (
+      <PageContainer title="Operações" description="Carregando...">
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </PageContainer>
+    );
+  }
+
+  if (error) {
+    return (
+      <PageContainer title="Operações" description="Erro ao carregar">
+        <div className="text-center py-16 text-destructive">
+          Erro ao carregar operações: {error.message}
+        </div>
+      </PageContainer>
+    );
+  }
 
   return (
     <PageContainer

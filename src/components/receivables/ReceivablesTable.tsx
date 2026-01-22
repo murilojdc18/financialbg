@@ -9,38 +9,31 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CheckCircle, Eye } from "lucide-react";
-import { Installment, InstallmentStatus } from "@/types/installment";
-import { Client } from "@/types/client";
+import { DbReceivableWithRelations, ReceivableStatus, DbClient } from "@/types/database";
 import { formatCurrency } from "@/lib/loan-calculator";
-import { format } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { useNavigate } from "react-router-dom";
 
 interface ReceivablesTableProps {
-  installments: Installment[];
-  clients: Client[];
-  onMarkAsPaid: (installment: Installment) => void;
+  receivables: DbReceivableWithRelations[];
+  clients: DbClient[];
+  onMarkAsPaid: (receivable: DbReceivableWithRelations) => void;
 }
 
 const statusConfig: Record<
-  InstallmentStatus,
+  ReceivableStatus,
   { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
 > = {
-  em_aberto: { label: "Em aberto", variant: "outline" },
-  pago: { label: "Pago", variant: "secondary" },
-  atrasado: { label: "Atrasado", variant: "destructive" },
+  EM_ABERTO: { label: "Em aberto", variant: "outline" },
+  PAGO: { label: "Pago", variant: "secondary" },
+  ATRASADO: { label: "Atrasado", variant: "destructive" },
 };
 
 export function ReceivablesTable({
-  installments,
-  clients,
+  receivables,
   onMarkAsPaid,
 }: ReceivablesTableProps) {
   const navigate = useNavigate();
-
-  const getClientName = (clientId: string) => {
-    const client = clients.find((c) => c.id === clientId);
-    return client?.name || "Cliente não encontrado";
-  };
 
   return (
     <div className="rounded-md border">
@@ -57,26 +50,26 @@ export function ReceivablesTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {installments.map((installment) => {
-            const status = statusConfig[installment.status];
+          {receivables.map((receivable) => {
+            const status = statusConfig[receivable.status];
             return (
-              <TableRow key={installment.id}>
+              <TableRow key={receivable.id}>
                 <TableCell className="font-medium">
-                  {installment.installmentNumber}ª
+                  {receivable.installment_number}ª
                 </TableCell>
-                <TableCell>{getClientName(installment.clientId)}</TableCell>
+                <TableCell>{receivable.clients?.name || "—"}</TableCell>
                 <TableCell>
                   <Button
                     variant="link"
                     className="p-0 h-auto font-medium"
-                    onClick={() => navigate(`/operacoes/${installment.operationId}`)}
+                    onClick={() => navigate(`/operacoes/${receivable.operation_id}`)}
                   >
-                    {installment.operationId}
+                    {receivable.operation_id.slice(0, 8)}
                   </Button>
                 </TableCell>
-                <TableCell>{format(installment.dueDate, "dd/MM/yyyy")}</TableCell>
+                <TableCell>{format(parseISO(receivable.due_date), "dd/MM/yyyy")}</TableCell>
                 <TableCell className="text-right font-medium">
-                  {formatCurrency(installment.amount)}
+                  {formatCurrency(Number(receivable.amount))}
                 </TableCell>
                 <TableCell>
                   <Badge variant={status.variant}>{status.label}</Badge>
@@ -86,16 +79,16 @@ export function ReceivablesTable({
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => navigate(`/operacoes/${installment.operationId}`)}
+                      onClick={() => navigate(`/operacoes/${receivable.operation_id}`)}
                       title="Ver operação"
                     >
                       <Eye className="h-4 w-4" />
                     </Button>
-                    {installment.status !== "pago" && (
+                    {receivable.status !== "PAGO" && (
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => onMarkAsPaid(installment)}
+                        onClick={() => onMarkAsPaid(receivable)}
                         className="gap-1"
                       >
                         <CheckCircle className="h-4 w-4" />
