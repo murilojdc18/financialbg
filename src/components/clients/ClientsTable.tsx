@@ -1,4 +1,4 @@
-import { Client } from "@/types/client";
+import { DbClient } from "@/types/database";
 import {
   Table,
   TableBody,
@@ -11,9 +11,9 @@ import { Button } from "@/components/ui/button";
 import { Pencil, Trash2 } from "lucide-react";
 
 interface ClientsTableProps {
-  clients: Client[];
-  onEdit: (client: Client) => void;
-  onDelete: (client: Client) => void;
+  clients: DbClient[];
+  onEdit: (client: DbClient) => void;
+  onDelete: (client: DbClient) => void;
 }
 
 export function ClientsTable({ clients, onEdit, onDelete }: ClientsTableProps) {

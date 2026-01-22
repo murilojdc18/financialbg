@@ -19,33 +19,39 @@ import {
   Building2,
   CreditCard,
   Shield,
+  Loader2,
 } from "lucide-react";
-import { initialMockOperations } from "@/data/mock-operations";
-import { initialMockClients } from "@/data/mock-clients";
+import { useOperation } from "@/hooks/useOperations";
 import { formatCurrency, formatPercent, calculateLoan } from "@/lib/loan-calculator";
 import { InstallmentScheduleTable } from "@/components/simulator/InstallmentScheduleTable";
-import { format } from "date-fns";
-import { OperationStatus } from "@/types/operation";
+import { format, parseISO } from "date-fns";
+import { OperationStatus } from "@/types/database";
 
 const statusConfig: Record<
   OperationStatus,
   { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
 > = {
-  ativa: { label: "Ativa", variant: "default" },
-  quitada: { label: "Quitada", variant: "secondary" },
-  cancelada: { label: "Cancelada", variant: "destructive" },
+  ATIVA: { label: "Ativa", variant: "default" },
+  QUITADA: { label: "Quitada", variant: "secondary" },
+  CANCELADA: { label: "Cancelada", variant: "destructive" },
 };
 
 export default function OperacaoDetalhes() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { data: operation, isLoading, error } = useOperation(id || "");
 
-  const operation = initialMockOperations.find((op) => op.id === id);
-  const client = operation
-    ? initialMockClients.find((c) => c.id === operation.clientId)
-    : null;
+  if (isLoading) {
+    return (
+      <PageContainer title="Carregando..." description="">
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </PageContainer>
+    );
+  }
 
-  if (!operation) {
+  if (error || !operation) {
     return (
       <PageContainer title="Operação não encontrada" description="">
         <Card>
@@ -63,22 +69,23 @@ export default function OperacaoDetalhes() {
     );
   }
 
+  const client = operation.clients;
   const status = statusConfig[operation.status];
 
   // Calculate loan schedule using existing calculator
   const loanResult = calculateLoan({
-    principal: operation.principal,
-    interestRate: operation.interestRate,
+    principal: Number(operation.principal),
+    interestRate: Number(operation.rate_monthly) * 100, // Convert decimal to percentage
     isAnnualRate: false,
-    termMonths: operation.termMonths,
-    amortizationType: operation.amortizationType,
-    startDate: operation.createdAt,
+    termMonths: operation.term_months,
+    amortizationType: operation.system.toLowerCase() as "price" | "sac",
+    startDate: parseISO(operation.start_date),
   });
 
   return (
     <PageContainer
-      title={`Operação ${operation.id}`}
-      description={`Detalhes completos da operação de ${operation.type.toLowerCase()}`}
+      title={`Operação ${operation.id.slice(0, 8)}`}
+      description="Detalhes completos da operação de empréstimo"
     >
       <div className="space-y-6">
         {/* Back button */}
@@ -175,15 +182,15 @@ export default function OperacaoDetalhes() {
                   <FileText className="h-4 w-4 text-muted-foreground mt-0.5" />
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">ID da Operação</p>
-                    <p className="font-semibold">{operation.id}</p>
+                    <p className="font-semibold font-mono text-sm">{operation.id.slice(0, 8)}</p>
                   </div>
                 </div>
 
                 <div className="flex items-start gap-3">
                   <Calendar className="h-4 w-4 text-muted-foreground mt-0.5" />
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">Data de Criação</p>
-                    <p className="font-medium">{format(operation.createdAt, "dd/MM/yyyy")}</p>
+                    <p className="text-sm font-medium text-muted-foreground">Data de Início</p>
+                    <p className="font-medium">{format(parseISO(operation.start_date), "dd/MM/yyyy")}</p>
                   </div>
                 </div>
               </div>
@@ -195,7 +202,7 @@ export default function OperacaoDetalhes() {
                   <DollarSign className="h-4 w-4 text-muted-foreground mt-0.5" />
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">Valor Principal</p>
-                    <p className="font-semibold text-lg">{formatCurrency(operation.principal)}</p>
+                    <p className="font-semibold text-lg">{formatCurrency(Number(operation.principal))}</p>
                   </div>
                 </div>
 
@@ -203,7 +210,7 @@ export default function OperacaoDetalhes() {
                   <Percent className="h-4 w-4 text-muted-foreground mt-0.5" />
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">Taxa de Juros</p>
-                    <p className="font-semibold">{formatPercent(operation.interestRate)} a.m.</p>
+                    <p className="font-semibold">{formatPercent(Number(operation.rate_monthly) * 100)} a.m.</p>
                     <p className="text-xs text-muted-foreground">{formatPercent(loanResult.annualRate)} a.a.</p>
                   </div>
                 </div>
@@ -216,7 +223,7 @@ export default function OperacaoDetalhes() {
                   <Clock className="h-4 w-4 text-muted-foreground mt-0.5" />
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">Prazo</p>
-                    <p className="font-semibold">{operation.termMonths} meses</p>
+                    <p className="font-semibold">{operation.term_months} meses</p>
                   </div>
                 </div>
 
@@ -224,7 +231,7 @@ export default function OperacaoDetalhes() {
                   <Calculator className="h-4 w-4 text-muted-foreground mt-0.5" />
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">Sistema de Amortização</p>
-                    <p className="font-semibold">{operation.amortizationType.toUpperCase()}</p>
+                    <p className="font-semibold">{operation.system}</p>
                   </div>
                 </div>
               </div>
@@ -235,7 +242,14 @@ export default function OperacaoDetalhes() {
                 <Shield className="h-4 w-4 text-muted-foreground mt-0.5" />
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Taxas Adicionais</p>
-                  <p className="font-medium text-muted-foreground">Nenhuma taxa adicional cadastrada</p>
+                  {(Number(operation.fee_fixed) > 0 || Number(operation.fee_insurance) > 0) ? (
+                    <div className="text-sm">
+                      {Number(operation.fee_fixed) > 0 && <p>Taxa fixa: {formatCurrency(Number(operation.fee_fixed))}</p>}
+                      {Number(operation.fee_insurance) > 0 && <p>Seguro: {formatCurrency(Number(operation.fee_insurance))}</p>}
+                    </div>
+                  ) : (
+                    <p className="font-medium text-muted-foreground">Nenhuma taxa adicional</p>
+                  )}
                 </div>
               </div>
             </CardContent>
@@ -276,7 +290,7 @@ export default function OperacaoDetalhes() {
                 {formatCurrency(loanResult.totalInterest)}
               </div>
               <p className="text-xs text-muted-foreground">
-                {((loanResult.totalInterest / operation.principal) * 100).toFixed(1)}% do principal
+                {((loanResult.totalInterest / Number(operation.principal)) * 100).toFixed(1)}% do principal
               </p>
             </CardContent>
           </Card>

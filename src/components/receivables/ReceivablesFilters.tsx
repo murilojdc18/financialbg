@@ -17,17 +17,16 @@ import { CalendarIcon, X } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
-import { Client } from "@/types/client";
-import { InstallmentStatus } from "@/types/installment";
+import { DbClient, ReceivableStatus } from "@/types/database";
 
 interface ReceivablesFiltersProps {
-  clients: Client[];
+  clients: DbClient[];
   selectedClientId: string;
-  selectedStatus: InstallmentStatus | "all";
+  selectedStatus: ReceivableStatus | "all";
   startDate: Date | undefined;
   endDate: Date | undefined;
   onClientChange: (clientId: string) => void;
-  onStatusChange: (status: InstallmentStatus | "all") => void;
+  onStatusChange: (status: string) => void;
   onStartDateChange: (date: Date | undefined) => void;
   onEndDateChange: (date: Date | undefined) => void;
   onClearFilters: () => void;
@@ -76,15 +75,15 @@ export function ReceivablesFilters({
         <Label htmlFor="status-filter" className="text-sm font-medium">
           Status
         </Label>
-        <Select value={selectedStatus} onValueChange={(v) => onStatusChange(v as InstallmentStatus | "all")}>
+        <Select value={selectedStatus} onValueChange={onStatusChange}>
           <SelectTrigger id="status-filter" className="mt-1.5">
             <SelectValue placeholder="Todos" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Todos</SelectItem>
-            <SelectItem value="em_aberto">Em aberto</SelectItem>
-            <SelectItem value="pago">Pago</SelectItem>
-            <SelectItem value="atrasado">Atrasado</SelectItem>
+            <SelectItem value="EM_ABERTO">Em aberto</SelectItem>
+            <SelectItem value="PAGO">Pago</SelectItem>
+            <SelectItem value="ATRASADO">Atrasado</SelectItem>
           </SelectContent>
         </Select>
       </div>

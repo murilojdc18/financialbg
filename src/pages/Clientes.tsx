@@ -2,24 +2,26 @@ import { useState, useMemo } from "react";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Search } from "lucide-react";
-import { Client, ClientFormData } from "@/types/client";
-import { initialMockClients } from "@/data/mock-clients";
+import { Plus, Search, Loader2 } from "lucide-react";
+import { DbClient, DbClientInsert, DbClientUpdate } from "@/types/database";
+import { useClients, useCreateClient, useUpdateClient, useDeleteClient } from "@/hooks/useClients";
 import { ClientsTable } from "@/components/clients/ClientsTable";
 import { ClientFormDialog } from "@/components/clients/ClientFormDialog";
 import { DeleteClientDialog } from "@/components/clients/DeleteClientDialog";
 import { EmptyClientsState } from "@/components/clients/EmptyClientsState";
-import { useToast } from "@/hooks/use-toast";
 
 export default function Clientes() {
-  const { toast } = useToast();
-  const [clients, setClients] = useState<Client[]>(initialMockClients);
+  const { data: clients = [], isLoading, error } = useClients();
+  const createClient = useCreateClient();
+  const updateClient = useUpdateClient();
+  const deleteClient = useDeleteClient();
+  
   const [searchTerm, setSearchTerm] = useState("");
   
   // Dialog states
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
-  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [selectedClient, setSelectedClient] = useState<DbClient | null>(null);
 
   // Filter clients by search term
   const filteredClients = useMemo(() => {
@@ -38,57 +40,52 @@ export default function Clientes() {
     setIsFormOpen(true);
   };
 
-  const handleEditClient = (client: Client) => {
+  const handleEditClient = (client: DbClient) => {
     setSelectedClient(client);
     setIsFormOpen(true);
   };
 
-  const handleDeleteClient = (client: Client) => {
+  const handleDeleteClient = (client: DbClient) => {
     setSelectedClient(client);
     setIsDeleteOpen(true);
   };
 
-  const handleFormSubmit = (data: ClientFormData) => {
+  const handleFormSubmit = async (data: DbClientInsert) => {
     if (selectedClient) {
-      // Edit existing client
-      setClients((prev) =>
-        prev.map((c) =>
-          c.id === selectedClient.id
-            ? { ...c, ...data, updatedAt: new Date() }
-            : c
-        )
-      );
-      toast({
-        title: "Cliente atualizado",
-        description: `${data.name} foi atualizado com sucesso.`,
-      });
+      await updateClient.mutateAsync({ id: selectedClient.id, ...data });
     } else {
-      // Add new client
-      const newClient: Client = {
-        id: Date.now().toString(),
-        ...data,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-      setClients((prev) => [newClient, ...prev]);
-      toast({
-        title: "Cliente cadastrado",
-        description: `${data.name} foi adicionado com sucesso.`,
-      });
+      await createClient.mutateAsync(data);
     }
+    setIsFormOpen(false);
   };
 
-  const handleDeleteConfirm = () => {
+  const handleDeleteConfirm = async () => {
     if (selectedClient) {
-      setClients((prev) => prev.filter((c) => c.id !== selectedClient.id));
-      toast({
-        title: "Cliente excluído",
-        description: `${selectedClient.name} foi removido.`,
-      });
+      await deleteClient.mutateAsync(selectedClient.id);
       setIsDeleteOpen(false);
       setSelectedClient(null);
     }
   };
+
+  if (isLoading) {
+    return (
+      <PageContainer title="Clientes" description="Carregando...">
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </PageContainer>
+    );
+  }
+
+  if (error) {
+    return (
+      <PageContainer title="Clientes" description="Erro ao carregar">
+        <div className="text-center py-16 text-destructive">
+          Erro ao carregar clientes: {error.message}
+        </div>
+      </PageContainer>
+    );
+  }
 
   const hasClients = clients.length > 0;
   const hasFilteredClients = filteredClients.length > 0;
@@ -135,6 +132,7 @@ export default function Clientes() {
         onOpenChange={setIsFormOpen}
         client={selectedClient}
         onSubmit={handleFormSubmit}
+        isLoading={createClient.isPending || updateClient.isPending}
       />
 
       <DeleteClientDialog
@@ -142,6 +140,7 @@ export default function Clientes() {
         onOpenChange={setIsDeleteOpen}
         client={selectedClient}
         onConfirm={handleDeleteConfirm}
+        isLoading={deleteClient.isPending}
       />
     </PageContainer>
   );

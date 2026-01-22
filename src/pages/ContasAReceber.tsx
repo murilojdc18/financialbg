@@ -5,96 +5,89 @@ import { ReceivablesSummaryCards } from "@/components/receivables/ReceivablesSum
 import { ReceivablesTable } from "@/components/receivables/ReceivablesTable";
 import { MarkAsPaidDialog } from "@/components/receivables/MarkAsPaidDialog";
 import { EmptyReceivablesState } from "@/components/receivables/EmptyReceivablesState";
-import { initialMockInstallments } from "@/data/mock-installments";
-import { initialMockClients } from "@/data/mock-clients";
-import { Installment, InstallmentStatus, InstallmentFormData } from "@/types/installment";
-import { toast } from "@/hooks/use-toast";
-import { isAfter, isBefore, startOfDay } from "date-fns";
+import { useClients } from "@/hooks/useClients";
+import { useReceivables, useMarkAsPaid } from "@/hooks/useReceivables";
+import { DbReceivableWithRelations, ReceivableStatus, PaymentMethod } from "@/types/database";
+import { Loader2 } from "lucide-react";
+import { isAfter, isBefore, startOfDay, parseISO } from "date-fns";
 
 export default function ContasAReceber() {
-  const [installments, setInstallments] = useState<Installment[]>(initialMockInstallments);
+  const { data: clients = [], isLoading: loadingClients } = useClients();
+  const { data: receivables = [], isLoading: loadingReceivables, error } = useReceivables();
+  const markAsPaid = useMarkAsPaid();
+  
   const [selectedClientId, setSelectedClientId] = useState<string>("all");
-  const [selectedStatus, setSelectedStatus] = useState<InstallmentStatus | "all">("all");
+  const [selectedStatus, setSelectedStatus] = useState<ReceivableStatus | "all">("all");
   const [startDate, setStartDate] = useState<Date | undefined>(undefined);
   const [endDate, setEndDate] = useState<Date | undefined>(undefined);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [selectedInstallment, setSelectedInstallment] = useState<Installment | null>(null);
+  const [selectedReceivable, setSelectedReceivable] = useState<DbReceivableWithRelations | null>(null);
 
-  // Update overdue status automatically
-  const processedInstallments = useMemo(() => {
+  // Update overdue status automatically (in-memory, for display)
+  const processedReceivables = useMemo(() => {
     const today = startOfDay(new Date());
-    return installments.map((inst) => {
-      if (inst.status === "em_aberto" && isBefore(startOfDay(inst.dueDate), today)) {
-        return { ...inst, status: "atrasado" as InstallmentStatus };
+    return receivables.map((rec) => {
+      const dueDate = parseISO(rec.due_date);
+      if (rec.status === "EM_ABERTO" && isBefore(startOfDay(dueDate), today)) {
+        return { ...rec, status: "ATRASADO" as ReceivableStatus };
       }
-      return inst;
+      return rec;
     });
-  }, [installments]);
+  }, [receivables]);
 
   // Apply filters
-  const filteredInstallments = useMemo(() => {
-    return processedInstallments.filter((inst) => {
-      if (selectedClientId !== "all" && inst.clientId !== selectedClientId) {
+  const filteredReceivables = useMemo(() => {
+    return processedReceivables.filter((rec) => {
+      if (selectedClientId !== "all" && rec.client_id !== selectedClientId) {
         return false;
       }
-      if (selectedStatus !== "all" && inst.status !== selectedStatus) {
+      if (selectedStatus !== "all" && rec.status !== selectedStatus) {
         return false;
       }
-      if (startDate && isBefore(inst.dueDate, startOfDay(startDate))) {
+      const dueDate = parseISO(rec.due_date);
+      if (startDate && isBefore(dueDate, startOfDay(startDate))) {
         return false;
       }
-      if (endDate && isAfter(inst.dueDate, startOfDay(endDate))) {
+      if (endDate && isAfter(dueDate, startOfDay(endDate))) {
         return false;
       }
       return true;
     });
-  }, [processedInstallments, selectedClientId, selectedStatus, startDate, endDate]);
+  }, [processedReceivables, selectedClientId, selectedStatus, startDate, endDate]);
 
   // Calculate summaries
   const summaries = useMemo(() => {
-    const openItems = filteredInstallments.filter((i) => i.status === "em_aberto");
-    const paidItems = filteredInstallments.filter((i) => i.status === "pago");
-    const overdueItems = filteredInstallments.filter((i) => i.status === "atrasado");
+    const openItems = filteredReceivables.filter((i) => i.status === "EM_ABERTO");
+    const paidItems = filteredReceivables.filter((i) => i.status === "PAGO");
+    const overdueItems = filteredReceivables.filter((i) => i.status === "ATRASADO");
     
     return {
-      totalOpen: openItems.reduce((sum, i) => sum + i.amount, 0),
-      totalPaid: paidItems.reduce((sum, i) => sum + i.amount, 0),
-      totalOverdue: overdueItems.reduce((sum, i) => sum + i.amount, 0),
+      totalOpen: openItems.reduce((sum, i) => sum + Number(i.amount), 0),
+      totalPaid: paidItems.reduce((sum, i) => sum + Number(i.amount), 0),
+      totalOverdue: overdueItems.reduce((sum, i) => sum + Number(i.amount), 0),
       countOpen: openItems.length,
       countPaid: paidItems.length,
       countOverdue: overdueItems.length,
     };
-  }, [filteredInstallments]);
+  }, [filteredReceivables]);
 
-  const handleMarkAsPaid = (installment: Installment) => {
-    setSelectedInstallment(installment);
+  const handleMarkAsPaid = (receivable: DbReceivableWithRelations) => {
+    setSelectedReceivable(receivable);
     setDialogOpen(true);
   };
 
-  const handleConfirmPayment = (data: InstallmentFormData) => {
-    if (!selectedInstallment) return;
+  const handleConfirmPayment = async (data: { paidAt: Date; paymentMethod: PaymentMethod; notes?: string }) => {
+    if (!selectedReceivable) return;
 
-    setInstallments((prev) =>
-      prev.map((inst) =>
-        inst.id === selectedInstallment.id
-          ? {
-              ...inst,
-              status: "pago" as InstallmentStatus,
-              paidAt: data.paidAt,
-              paymentMethod: data.paymentMethod,
-              notes: data.notes,
-            }
-          : inst
-      )
-    );
-
-    toast({
-      title: "Pagamento registrado",
-      description: `Parcela ${selectedInstallment.installmentNumber}ª marcada como paga.`,
+    await markAsPaid.mutateAsync({
+      id: selectedReceivable.id,
+      paid_at: data.paidAt.toISOString(),
+      payment_method: data.paymentMethod,
+      notes: data.notes,
     });
 
     setDialogOpen(false);
-    setSelectedInstallment(null);
+    setSelectedReceivable(null);
   };
 
   const hasActiveFilters =
@@ -110,6 +103,28 @@ export default function ContasAReceber() {
     setEndDate(undefined);
   };
 
+  const isLoading = loadingClients || loadingReceivables;
+
+  if (isLoading) {
+    return (
+      <PageContainer title="Contas a Receber" description="Carregando...">
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </PageContainer>
+    );
+  }
+
+  if (error) {
+    return (
+      <PageContainer title="Contas a Receber" description="Erro ao carregar">
+        <div className="text-center py-16 text-destructive">
+          Erro ao carregar contas: {error.message}
+        </div>
+      </PageContainer>
+    );
+  }
+
   return (
     <PageContainer
       title="Contas a Receber"
@@ -117,13 +132,13 @@ export default function ContasAReceber() {
     >
       <div className="space-y-6">
         <ReceivablesFilters
-          clients={initialMockClients}
+          clients={clients}
           selectedClientId={selectedClientId}
           selectedStatus={selectedStatus}
           startDate={startDate}
           endDate={endDate}
           onClientChange={setSelectedClientId}
-          onStatusChange={setSelectedStatus}
+          onStatusChange={(status) => setSelectedStatus(status as ReceivableStatus | "all")}
           onStartDateChange={setStartDate}
           onEndDateChange={setEndDate}
           onClearFilters={handleClearFilters}
@@ -138,12 +153,12 @@ export default function ContasAReceber() {
           countOverdue={summaries.countOverdue}
         />
 
-        {filteredInstallments.length === 0 ? (
+        {filteredReceivables.length === 0 ? (
           <EmptyReceivablesState hasFilters={hasActiveFilters} />
         ) : (
           <ReceivablesTable
-            installments={filteredInstallments}
-            clients={initialMockClients}
+            receivables={filteredReceivables}
+            clients={clients}
             onMarkAsPaid={handleMarkAsPaid}
           />
         )}
@@ -152,8 +167,9 @@ export default function ContasAReceber() {
       <MarkAsPaidDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        installment={selectedInstallment}
+        receivable={selectedReceivable}
         onConfirm={handleConfirmPayment}
+        isLoading={markAsPaid.isPending}
       />
     </PageContainer>
   );

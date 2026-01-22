@@ -1,6 +1,4 @@
-import { useState } from "react";
-import { Search, X, Calendar } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { Calendar, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -15,14 +13,13 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
-import { Client } from "@/types/client";
-import { OperationStatus } from "@/types/operation";
+import { DbClient, OperationStatus } from "@/types/database";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 
 interface OperationsFiltersProps {
-  clients: Client[];
+  clients: DbClient[];
   selectedClientId: string;
   onClientChange: (clientId: string) => void;
   selectedStatus: string;
@@ -36,9 +33,9 @@ interface OperationsFiltersProps {
 
 const statusOptions: { value: OperationStatus | "all"; label: string }[] = [
   { value: "all", label: "Todos os status" },
-  { value: "ativa", label: "Ativa" },
-  { value: "quitada", label: "Quitada" },
-  { value: "cancelada", label: "Cancelada" },
+  { value: "ATIVA", label: "Ativa" },
+  { value: "QUITADA", label: "Quitada" },
+  { value: "CANCELADA", label: "Cancelada" },
 ];
 
 export function OperationsFilters({

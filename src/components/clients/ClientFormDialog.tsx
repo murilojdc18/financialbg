@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Client, ClientFormData } from "@/types/client";
+import { DbClient, DbClientInsert } from "@/types/database";
 import {
   Dialog,
   DialogContent,
@@ -22,6 +22,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { Loader2 } from "lucide-react";
 
 const clientSchema = z.object({
   name: z.string().min(1, "Nome é obrigatório").max(200, "Nome muito longo"),
@@ -42,8 +43,9 @@ type FormValues = z.infer<typeof clientSchema>;
 interface ClientFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  client: Client | null;
-  onSubmit: (data: ClientFormData) => void;
+  client: DbClient | null;
+  onSubmit: (data: DbClientInsert) => Promise<void>;
+  isLoading?: boolean;
 }
 
 export function ClientFormDialog({
@@ -51,6 +53,7 @@ export function ClientFormDialog({
   onOpenChange,
   client,
   onSubmit,
+  isLoading = false,
 }: ClientFormDialogProps) {
   const isEditing = !!client;
 
@@ -90,16 +93,15 @@ export function ClientFormDialog({
     }
   }, [open, client, form]);
 
-  const handleSubmit = (values: FormValues) => {
-    onSubmit({
+  const handleSubmit = async (values: FormValues) => {
+    await onSubmit({
       name: values.name,
-      document: values.document || undefined,
-      email: values.email || undefined,
-      phone: values.phone || undefined,
-      address: values.address || undefined,
-      notes: values.notes || undefined,
+      document: values.document || null,
+      email: values.email || null,
+      phone: values.phone || null,
+      address: values.address || null,
+      notes: values.notes || null,
     });
-    onOpenChange(false);
   };
 
   return (
@@ -210,10 +212,11 @@ export function ClientFormDialog({
             />
 
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isLoading}>
                 Cancelar
               </Button>
-              <Button type="submit">
+              <Button type="submit" disabled={isLoading}>
+                {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {isEditing ? "Salvar" : "Cadastrar"}
               </Button>
             </DialogFooter>

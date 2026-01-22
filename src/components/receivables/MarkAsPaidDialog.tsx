@@ -32,39 +32,43 @@ import {
 import { Calendar } from "@/components/ui/calendar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { CalendarIcon } from "lucide-react";
+import { CalendarIcon, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
-import { Installment, InstallmentFormData } from "@/types/installment";
+import { DbReceivableWithRelations, PaymentMethod } from "@/types/database";
 import { formatCurrency } from "@/lib/loan-calculator";
 
 const formSchema = z.object({
   paidAt: z.date({
     required_error: "Data de pagamento é obrigatória",
   }),
-  paymentMethod: z.string().min(1, "Selecione um método de pagamento"),
+  paymentMethod: z.enum(["PIX", "BOLETO", "TRANSFERENCIA", "DINHEIRO", "CARTAO", "OUTRO"], {
+    required_error: "Selecione um método de pagamento",
+  }),
   notes: z.string().max(500, "Observação deve ter no máximo 500 caracteres").optional(),
 });
 
 interface MarkAsPaidDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  installment: Installment | null;
-  onConfirm: (data: InstallmentFormData) => void;
+  receivable: DbReceivableWithRelations | null;
+  onConfirm: (data: { paidAt: Date; paymentMethod: PaymentMethod; notes?: string }) => void;
+  isLoading?: boolean;
 }
 
 export function MarkAsPaidDialog({
   open,
   onOpenChange,
-  installment,
+  receivable,
   onConfirm,
+  isLoading = false,
 }: MarkAsPaidDialogProps) {
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       paidAt: new Date(),
-      paymentMethod: "",
+      paymentMethod: undefined,
       notes: "",
     },
   });
@@ -85,7 +89,7 @@ export function MarkAsPaidDialog({
     onOpenChange(open);
   };
 
-  if (!installment) return null;
+  if (!receivable) return null;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -93,7 +97,7 @@ export function MarkAsPaidDialog({
         <DialogHeader>
           <DialogTitle>Registrar Pagamento</DialogTitle>
           <DialogDescription>
-            Parcela {installment.installmentNumber}ª - {formatCurrency(installment.amount)}
+            Parcela {receivable.installment_number}ª - {formatCurrency(Number(receivable.amount))}
           </DialogDescription>
         </DialogHeader>
 
@@ -154,11 +158,11 @@ export function MarkAsPaidDialog({
                     </FormControl>
                     <SelectContent>
                       <SelectItem value="PIX">PIX</SelectItem>
-                      <SelectItem value="Boleto">Boleto</SelectItem>
-                      <SelectItem value="Transferência">Transferência Bancária</SelectItem>
-                      <SelectItem value="Dinheiro">Dinheiro</SelectItem>
-                      <SelectItem value="Cartão">Cartão</SelectItem>
-                      <SelectItem value="Cheque">Cheque</SelectItem>
+                      <SelectItem value="BOLETO">Boleto</SelectItem>
+                      <SelectItem value="TRANSFERENCIA">Transferência Bancária</SelectItem>
+                      <SelectItem value="DINHEIRO">Dinheiro</SelectItem>
+                      <SelectItem value="CARTAO">Cartão</SelectItem>
+                      <SelectItem value="OUTRO">Outro</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />
@@ -185,10 +189,13 @@ export function MarkAsPaidDialog({
             />
 
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
+              <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={isLoading}>
                 Cancelar
               </Button>
-              <Button type="submit">Confirmar Pagamento</Button>
+              <Button type="submit" disabled={isLoading}>
+                {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Confirmar Pagamento
+              </Button>
             </DialogFooter>
           </form>
         </Form>
