@@ -7,6 +7,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import SimuladorEmprestimo from "./pages/SimuladorEmprestimo";
 import Clientes from "./pages/Clientes";
 import Operacoes from "./pages/Operacoes";
+import OperacaoDetalhes from "./pages/OperacaoDetalhes";
 import ContasAReceber from "./pages/ContasAReceber";
 import NotFound from "./pages/NotFound";
 
@@ -24,6 +25,7 @@ const App = () => (
             <Route path="/simulador-emprestimo" element={<SimuladorEmprestimo />} />
             <Route path="/clientes" element={<Clientes />} />
             <Route path="/operacoes" element={<Operacoes />} />
+            <Route path="/operacoes/:id" element={<OperacaoDetalhes />} />
             <Route path="/contas-a-receber" element={<ContasAReceber />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
