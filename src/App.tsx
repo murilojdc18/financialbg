@@ -4,11 +4,15 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
+import { AuthProvider } from "@/contexts/AuthContext";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import SimuladorEmprestimo from "./pages/SimuladorEmprestimo";
 import Clientes from "./pages/Clientes";
 import Operacoes from "./pages/Operacoes";
 import OperacaoDetalhes from "./pages/OperacaoDetalhes";
 import ContasAReceber from "./pages/ContasAReceber";
+import Login from "./pages/Login";
+import Signup from "./pages/Signup";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -19,18 +23,65 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <AppLayout>
+        <AuthProvider>
           <Routes>
             <Route path="/" element={<Navigate to="/simulador-emprestimo" replace />} />
-            <Route path="/simulador-emprestimo" element={<SimuladorEmprestimo />} />
-            <Route path="/clientes" element={<Clientes />} />
-            <Route path="/operacoes" element={<Operacoes />} />
-            <Route path="/operacoes/:id" element={<OperacaoDetalhes />} />
-            <Route path="/contas-a-receber" element={<ContasAReceber />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/signup" element={<Signup />} />
+            <Route
+              path="/simulador-emprestimo"
+              element={
+                <ProtectedRoute>
+                  <AppLayout>
+                    <SimuladorEmprestimo />
+                  </AppLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/clientes"
+              element={
+                <ProtectedRoute>
+                  <AppLayout>
+                    <Clientes />
+                  </AppLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/operacoes"
+              element={
+                <ProtectedRoute>
+                  <AppLayout>
+                    <Operacoes />
+                  </AppLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/operacoes/:id"
+              element={
+                <ProtectedRoute>
+                  <AppLayout>
+                    <OperacaoDetalhes />
+                  </AppLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/contas-a-receber"
+              element={
+                <ProtectedRoute>
+                  <AppLayout>
+                    <ContasAReceber />
+                  </AppLayout>
+                </ProtectedRoute>
+              }
+            />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>
-        </AppLayout>
+        </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
