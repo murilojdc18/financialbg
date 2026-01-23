@@ -19,7 +19,7 @@ import { Loader2, Receipt, AlertCircle, Info, CheckCircle } from "lucide-react";
 import { format, parseISO, isBefore, startOfDay } from "date-fns";
 import { formatCurrency } from "@/lib/loan-calculator";
 import { calculateLateFees, LateFeeConfig, LateFeeResult } from "@/lib/late-fee-calculator";
-import { useReceivablesByOperation, useUpdateReceivable } from "@/hooks/useReceivables";
+import { useReceivablesByOperation, useMarkAsPaid } from "@/hooks/useReceivables";
 import { DbReceivable, ReceivableStatus, PaymentMethod } from "@/types/database";
 import { MarkReceivablePaidDialog } from "./MarkReceivablePaidDialog";
 import { useQueryClient } from "@tanstack/react-query";
@@ -64,7 +64,7 @@ interface SelectedReceivable {
 
 export function ReceivablesSection({ operationId, lateFeeConfig }: ReceivablesSectionProps) {
   const { data: receivables, isLoading, error } = useReceivablesByOperation(operationId);
-  const updateReceivable = useUpdateReceivable();
+  const markAsPaid = useMarkAsPaid();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   
@@ -92,16 +92,16 @@ export function ReceivablesSection({ operationId, lateFeeConfig }: ReceivablesSe
     if (!selectedReceivable) return;
 
     try {
-      await updateReceivable.mutateAsync({
+      await markAsPaid.mutateAsync({
         id: selectedReceivable.id,
-        status: "PAGO",
         paid_at: data.paidAt.toISOString(),
         payment_method: data.paymentMethod,
-        amount_paid: data.amountPaid,
+        amount: data.amountPaid,
       });
       
       // Invalidate queries to refresh the list
       queryClient.invalidateQueries({ queryKey: ["receivables", "operation", operationId] });
+      queryClient.invalidateQueries({ queryKey: ["payments"] });
       
       toast({
         title: "Pagamento registrado!",

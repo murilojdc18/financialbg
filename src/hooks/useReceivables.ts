@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
 import { DbReceivable, DbReceivableInsert, DbReceivableUpdate, DbReceivableWithRelations, PaymentMethod } from '@/types/database';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 
 export function useReceivables() {
   return useQuery({
@@ -66,6 +67,7 @@ export function useCreateReceivables() {
 export function useMarkAsPaid() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { user } = useAuth();
 
   return useMutation({
     mutationFn: async ({ 
@@ -81,6 +83,8 @@ export function useMarkAsPaid() {
       notes?: string;
       amount: number;
     }) => {
+      if (!user) throw new Error('Usuário não autenticado');
+
       // 1. Atualizar receivable
       const { data: receivable, error: receivableError } = await supabase
         .from('receivables')
@@ -88,7 +92,8 @@ export function useMarkAsPaid() {
           status: 'PAGO', 
           paid_at, 
           payment_method, 
-          notes 
+          notes,
+          amount_paid: amount,
         })
         .eq('id', id)
         .select()
@@ -101,16 +106,14 @@ export function useMarkAsPaid() {
         .from('payments')
         .insert({
           receivable_id: id,
+          owner_id: user.id,
           amount,
           paid_at,
           method: payment_method,
           notes
         });
       
-      if (paymentError) {
-        console.error('Erro ao inserir payment:', paymentError);
-        // Não falha a operação se payment falhar
-      }
+      if (paymentError) throw paymentError;
 
       return receivable as DbReceivable;
     },
