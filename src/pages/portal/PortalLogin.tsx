@@ -13,15 +13,16 @@ import { Loader2, AlertCircle, Info } from "lucide-react";
  * Check user role via has_role RPC function
  */
 async function getUserRole(userId: string): Promise<'ADMIN' | 'CLIENT' | null> {
+  // Use lowercase for enum values
   const { data: isAdmin, error: adminError } = await supabase
-    .rpc('has_role', { _user_id: userId, _role: 'ADMIN' });
+    .rpc('has_role', { _user_id: userId, _role: 'admin' });
 
   if (!adminError && isAdmin === true) {
     return 'ADMIN';
   }
 
   const { data: isClient, error: clientError } = await supabase
-    .rpc('has_role', { _user_id: userId, _role: 'CLIENT' });
+    .rpc('has_role', { _user_id: userId, _role: 'client' });
 
   if (!clientError && isClient === true) {
     return 'CLIENT';
