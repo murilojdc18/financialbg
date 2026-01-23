@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -25,20 +24,12 @@ import { DbReceivable, ReceivableStatus, PaymentMethod } from "@/types/database"
 import { MarkReceivablePaidDialog } from "./MarkReceivablePaidDialog";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { StatusBadge } from "@/components/StatusBadge";
 
 interface ReceivablesSectionProps {
   operationId: string;
   lateFeeConfig: LateFeeConfig;
 }
-
-const statusConfig: Record<
-  ReceivableStatus,
-  { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
-> = {
-  EM_ABERTO: { label: "Em Aberto", variant: "outline" },
-  PAGO: { label: "Pago", variant: "secondary" },
-  ATRASADO: { label: "Atrasado", variant: "destructive" },
-};
 
 const paymentMethodLabels: Record<PaymentMethod, string> = {
   PIX: "PIX",
@@ -182,7 +173,6 @@ export function ReceivablesSection({ operationId, lateFeeConfig }: ReceivablesSe
                 <TableBody>
                   {receivables.map((receivable) => {
                     const displayStatus = getDisplayStatus(receivable);
-                    const statusStyle = statusConfig[displayStatus];
                     const isPaid = receivable.status === "PAGO";
                     
                     // Calcula multa/juros apenas para parcelas não pagas
@@ -248,9 +238,7 @@ export function ReceivablesSection({ operationId, lateFeeConfig }: ReceivablesSe
                           )}
                         </TableCell>
                         <TableCell className="text-center">
-                          <Badge variant={statusStyle.variant}>
-                            {statusStyle.label}
-                          </Badge>
+                          <StatusBadge status={displayStatus} />
                         </TableCell>
                         <TableCell>
                           {receivable.paid_at
