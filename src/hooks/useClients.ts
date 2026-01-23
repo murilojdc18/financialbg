@@ -45,14 +45,16 @@ export function useCreateClient() {
     mutationFn: async (client: DbClientInsert) => {
       if (!user) throw new Error('Usuário não autenticado');
       
-      const { data, error } = await supabase
+      // IMPORTANT: Avoid returning representation here.
+      // When RLS is enabled, `insert(...).select().single()` requires the newly inserted
+      // row to pass SELECT policies as well, which can surface as an RLS error even if
+      // INSERT policy is correct. We instead insert with minimal returning and refresh.
+      const { error } = await supabase
         .from('clients')
-        .insert({ ...client, owner_id: user.id })
-        .select()
-        .single();
+        .insert([{ ...client, owner_id: user.id }]);
       
       if (error) throw error;
-      return data as DbClient;
+      return;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['clients'] });
