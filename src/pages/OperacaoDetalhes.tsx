@@ -24,6 +24,7 @@ import {
 import { useOperation } from "@/hooks/useOperations";
 import { formatCurrency, formatPercent, calculateLoan } from "@/lib/loan-calculator";
 import { InstallmentScheduleTable } from "@/components/simulator/InstallmentScheduleTable";
+import { ReceivablesSection } from "@/components/operations/ReceivablesSection";
 import { format, parseISO } from "date-fns";
 import { OperationStatus } from "@/types/database";
 
@@ -309,7 +310,10 @@ export default function OperacaoDetalhes() {
           </Card>
         </div>
 
-        {/* Installment Schedule */}
+        {/* Parcelas do Supabase */}
+        <ReceivablesSection operationId={operation.id} />
+
+        {/* Cronograma Simulado (para referência) */}
         <InstallmentScheduleTable result={loanResult} />
       </div>
     </PageContainer>
