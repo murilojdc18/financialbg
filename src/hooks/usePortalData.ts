@@ -112,3 +112,84 @@ export function usePortalDashboardStats() {
     enabled: !!clientId && isClient,
   });
 }
+
+// All operations (not just active) for the operations list page
+export function usePortalAllOperations(statusFilter?: string) {
+  const { clientId, isClient } = useProfile();
+
+  return useQuery({
+    queryKey: ['portal', 'all-operations', clientId, statusFilter],
+    queryFn: async () => {
+      if (!clientId) return [];
+
+      let query = supabase
+        .from('operations')
+        .select('*')
+        .eq('client_id', clientId)
+        .order('created_at', { ascending: false });
+
+      if (statusFilter && statusFilter !== 'TODAS') {
+        query = query.eq('status', statusFilter);
+      }
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+      return data as PortalOperation[];
+    },
+    enabled: !!clientId && isClient,
+  });
+}
+
+// Single operation with validation
+export function usePortalOperation(operationId: string) {
+  const { clientId, isClient } = useProfile();
+
+  return useQuery({
+    queryKey: ['portal', 'operation', operationId, clientId],
+    queryFn: async () => {
+      if (!clientId || !operationId) return null;
+
+      const { data, error } = await supabase
+        .from('operations')
+        .select('*')
+        .eq('id', operationId)
+        .eq('client_id', clientId) // Ensures belongs to client
+        .maybeSingle();
+
+      if (error) throw error;
+      return data as PortalOperation | null;
+    },
+    enabled: !!clientId && !!operationId && isClient,
+  });
+}
+
+// Receivables for a specific operation
+export function usePortalOperationReceivables(operationId: string) {
+  const { clientId, isClient } = useProfile();
+
+  return useQuery({
+    queryKey: ['portal', 'operation-receivables', operationId, clientId],
+    queryFn: async () => {
+      if (!clientId || !operationId) return [];
+
+      const { data, error } = await supabase
+        .from('receivables')
+        .select(`
+          *,
+          operations!inner (
+            late_grace_days,
+            late_penalty_percent,
+            late_interest_monthly_percent
+          )
+        `)
+        .eq('operation_id', operationId)
+        .eq('client_id', clientId) // Ensures belongs to client
+        .order('installment_number', { ascending: true });
+
+      if (error) throw error;
+      return data as PortalReceivable[];
+    },
+    enabled: !!clientId && !!operationId && isClient,
+  });
+}
