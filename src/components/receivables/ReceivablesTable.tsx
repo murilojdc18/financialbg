@@ -6,28 +6,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CheckCircle, Eye } from "lucide-react";
-import { DbReceivableWithRelations, ReceivableStatus, DbClient } from "@/types/database";
+import { DbReceivableWithRelations, DbClient } from "@/types/database";
 import { formatCurrency } from "@/lib/loan-calculator";
 import { format, parseISO } from "date-fns";
 import { useNavigate } from "react-router-dom";
+import { StatusBadge } from "@/components/StatusBadge";
 
 interface ReceivablesTableProps {
   receivables: DbReceivableWithRelations[];
   clients: DbClient[];
   onMarkAsPaid: (receivable: DbReceivableWithRelations) => void;
 }
-
-const statusConfig: Record<
-  ReceivableStatus,
-  { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
-> = {
-  EM_ABERTO: { label: "Em aberto", variant: "outline" },
-  PAGO: { label: "Pago", variant: "secondary" },
-  ATRASADO: { label: "Atrasado", variant: "destructive" },
-};
 
 export function ReceivablesTable({
   receivables,
@@ -51,7 +42,6 @@ export function ReceivablesTable({
         </TableHeader>
         <TableBody>
           {receivables.map((receivable) => {
-            const status = statusConfig[receivable.status];
             return (
               <TableRow key={receivable.id}>
                 <TableCell className="font-medium">
@@ -72,7 +62,7 @@ export function ReceivablesTable({
                   {formatCurrency(Number(receivable.amount))}
                 </TableCell>
                 <TableCell>
-                  <Badge variant={status.variant}>{status.label}</Badge>
+                  <StatusBadge status={receivable.status} />
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-2">
