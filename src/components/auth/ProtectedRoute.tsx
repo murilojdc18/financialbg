@@ -1,6 +1,8 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { useProfile } from '@/hooks/useProfile';
+import { useUserRole } from '@/hooks/useUserRole';
+import { useClientId } from '@/hooks/useClientId';
+import { Loader2 } from 'lucide-react';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -8,14 +10,15 @@ interface ProtectedRouteProps {
 
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
   const { user, loading: authLoading } = useAuth();
-  const { profile, isLoading: profileLoading, isAdmin, isClient, clientId } = useProfile();
+  const { isAdmin, isClient, isLoading: roleLoading, role } = useUserRole();
+  const { clientId, isLoading: clientIdLoading } = useClientId();
   const location = useLocation();
 
-  // Show loading while checking auth and profile
-  if (authLoading || profileLoading) {
+  // Show loading while checking auth and role
+  if (authLoading || roleLoading || clientIdLoading) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
@@ -39,23 +42,17 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     return <>{children}</>;
   }
 
-  // No profile or unknown role -> show error
-  if (!profile || !profile.role) {
-    return (
-      <div className="flex h-screen flex-col items-center justify-center gap-4 p-4 text-center">
-        <h1 className="text-2xl font-bold text-destructive">Perfil não configurado</h1>
-        <p className="text-muted-foreground max-w-md">
-          Seu perfil não possui uma role definida. Contate o administrador do sistema.
-        </p>
-      </div>
-    );
-  }
-
-  // Unknown role -> show error
+  // No role found -> show error with clear message
   return (
     <div className="flex h-screen flex-col items-center justify-center gap-4 p-4 text-center">
-      <h1 className="text-2xl font-bold text-destructive">Acesso negado</h1>
-      <p className="text-muted-foreground">Você não tem permissão para acessar esta área.</p>
+      <h1 className="text-2xl font-bold text-destructive">Perfil não configurado</h1>
+      <p className="text-muted-foreground max-w-md">
+        Seu perfil não possui uma role definida na tabela user_roles. 
+        Contate o administrador do sistema para adicionar sua permissão.
+      </p>
+      <p className="text-sm text-muted-foreground">
+        User ID: <code className="bg-muted px-2 py-1 rounded">{user.id}</code>
+      </p>
     </div>
   );
 }

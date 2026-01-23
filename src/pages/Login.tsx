@@ -15,6 +15,42 @@ const loginSchema = z.object({
   password: z.string().min(6, 'Senha deve ter no mínimo 6 caracteres'),
 });
 
+/**
+ * Check user role via has_role RPC function
+ */
+async function getUserRole(userId: string): Promise<'ADMIN' | 'CLIENT' | null> {
+  // Check ADMIN first
+  const { data: isAdmin, error: adminError } = await supabase
+    .rpc('has_role', { _user_id: userId, _role: 'ADMIN' });
+
+  if (!adminError && isAdmin === true) {
+    return 'ADMIN';
+  }
+
+  // Check CLIENT
+  const { data: isClient, error: clientError } = await supabase
+    .rpc('has_role', { _user_id: userId, _role: 'CLIENT' });
+
+  if (!clientError && isClient === true) {
+    return 'CLIENT';
+  }
+
+  return null;
+}
+
+/**
+ * Get client_id from profiles table
+ */
+async function getClientId(userId: string): Promise<string | null> {
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('client_id')
+    .eq('id', userId)
+    .maybeSingle();
+
+  return profile?.client_id ?? null;
+}
+
 export default function Login() {
   const { user, signIn, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -31,28 +67,20 @@ export default function Login() {
       if (!user) return;
 
       try {
-        const { data: profile, error } = await supabase
-          .from('profiles')
-          .select('role, client_id')
-          .eq('id', user.id)
-          .maybeSingle();
+        const role = await getUserRole(user.id);
+        const clientId = await getClientId(user.id);
 
-        if (error) {
-          console.error('[Login] Profile fetch error:', error);
-          return;
-        }
-
-        if (profile?.role === 'ADMIN') {
+        if (role === 'ADMIN') {
           navigate('/operacoes', { replace: true });
-        } else if (profile?.role === 'CLIENT') {
-          if (profile.client_id) {
+        } else if (role === 'CLIENT') {
+          if (clientId) {
             navigate('/portal/dashboard', { replace: true });
           } else {
             navigate('/portal/vincular', { replace: true });
           }
         }
       } catch (err) {
-        console.error('[Login] Error checking profile:', err);
+        console.error('[Login] Error checking role:', err);
       }
     };
 
@@ -104,67 +132,35 @@ export default function Login() {
         return;
       }
 
-      // Fetch or check profile
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('role, client_id')
-        .eq('id', signedInUser.id)
-        .maybeSingle();
-
-      if (profileError) {
-        console.error('[Login] Profile error:', profileError);
-        setErrorMessage('Erro ao carregar perfil.');
-        toast({
-          variant: 'destructive',
-          title: 'Erro',
-          description: 'Erro ao carregar seu perfil.',
-        });
-        setLoading(false);
-        return;
-      }
-
-      // If no profile exists, this is the admin login page - show error
-      if (!profile) {
-        setErrorMessage('Seu perfil não está configurado. Contate o administrador.');
-        toast({
-          variant: 'destructive',
-          title: 'Perfil não encontrado',
-          description: 'Seu perfil não está configurado. Contate o administrador.',
-        });
-        setLoading(false);
-        return;
-      }
-
-      // Check role and redirect
-      if (!profile.role) {
-        setErrorMessage('Seu perfil não tem role definido. Contate o administrador.');
-        toast({
-          variant: 'destructive',
-          title: 'Role não definido',
-          description: 'Seu perfil não tem role definido. Contate o administrador.',
-        });
-        setLoading(false);
-        return;
-      }
+      // Check role via user_roles
+      const role = await getUserRole(signedInUser.id);
+      const clientId = await getClientId(signedInUser.id);
 
       // Role-based redirect
-      if (profile.role === 'ADMIN') {
+      if (role === 'ADMIN') {
         toast({
           title: 'Bem-vindo!',
           description: 'Login realizado com sucesso.',
         });
         navigate('/operacoes', { replace: true });
-      } else if (profile.role === 'CLIENT') {
-        // Client trying to use admin login - redirect to portal
+      } else if (role === 'CLIENT') {
         toast({
           title: 'Redirecionando...',
           description: 'Você será direcionado ao Portal do Cliente.',
         });
-        if (profile.client_id) {
+        if (clientId) {
           navigate('/portal/dashboard', { replace: true });
         } else {
           navigate('/portal/vincular', { replace: true });
         }
+      } else {
+        // No role found
+        setErrorMessage('Seu perfil não tem role definido. Contate o administrador para adicionar sua permissão na tabela user_roles.');
+        toast({
+          variant: 'destructive',
+          title: 'Role não definido',
+          description: 'Contate o administrador para configurar sua permissão.',
+        });
       }
     } catch (err) {
       console.error('[Login] Unexpected error:', err);
