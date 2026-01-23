@@ -152,6 +152,8 @@ export default function ContasAReceber() {
           countOpen={summaries.countOpen}
           countPaid={summaries.countPaid}
           countOverdue={summaries.countOverdue}
+          selectedStatus={selectedStatus}
+          onStatusClick={setSelectedStatus}
         />
 
         {filteredReceivables.length === 0 ? (
