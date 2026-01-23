@@ -6,6 +6,8 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import { PortalLayout } from "@/components/portal/PortalLayout";
+import { PortalProtectedRoute } from "@/components/portal/PortalProtectedRoute";
 import SimuladorEmprestimo from "./pages/SimuladorEmprestimo";
 import Clientes from "./pages/Clientes";
 import Operacoes from "./pages/Operacoes";
@@ -14,6 +16,13 @@ import ContasAReceber from "./pages/ContasAReceber";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import NotFound from "./pages/NotFound";
+// Portal pages
+import PortalLogin from "./pages/portal/PortalLogin";
+import PortalDashboard from "./pages/portal/PortalDashboard";
+import PortalOperacoes from "./pages/portal/PortalOperacoes";
+import PortalOperacaoDetalhes from "./pages/portal/PortalOperacaoDetalhes";
+import PortalPontos from "./pages/portal/PortalPontos";
+import PortalCertificado from "./pages/portal/PortalCertificado";
 
 const queryClient = new QueryClient();
 
@@ -78,6 +87,60 @@ const App = () => (
                 </ProtectedRoute>
               }
             />
+
+            {/* Portal do Cliente routes */}
+            <Route path="/portal/login" element={<PortalLogin />} />
+            <Route
+              path="/portal/dashboard"
+              element={
+                <PortalProtectedRoute>
+                  <PortalLayout>
+                    <PortalDashboard />
+                  </PortalLayout>
+                </PortalProtectedRoute>
+              }
+            />
+            <Route
+              path="/portal/operacoes"
+              element={
+                <PortalProtectedRoute>
+                  <PortalLayout>
+                    <PortalOperacoes />
+                  </PortalLayout>
+                </PortalProtectedRoute>
+              }
+            />
+            <Route
+              path="/portal/operacoes/:id"
+              element={
+                <PortalProtectedRoute>
+                  <PortalLayout>
+                    <PortalOperacaoDetalhes />
+                  </PortalLayout>
+                </PortalProtectedRoute>
+              }
+            />
+            <Route
+              path="/portal/pontos"
+              element={
+                <PortalProtectedRoute>
+                  <PortalLayout>
+                    <PortalPontos />
+                  </PortalLayout>
+                </PortalProtectedRoute>
+              }
+            />
+            <Route
+              path="/portal/certificado"
+              element={
+                <PortalProtectedRoute>
+                  <PortalLayout>
+                    <PortalCertificado />
+                  </PortalLayout>
+                </PortalProtectedRoute>
+              }
+            />
+
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>
