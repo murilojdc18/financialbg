@@ -31,6 +31,10 @@ export interface DbOperation {
   fee_insurance: number | null;
   status: OperationStatus;
   notes: string | null;
+  // Campos de cobrança com atraso
+  late_grace_days: number;
+  late_penalty_percent: number;
+  late_interest_monthly_percent: number;
   created_at: string;
   updated_at: string;
 }
@@ -43,6 +47,7 @@ export interface DbReceivable {
   installment_number: number;
   due_date: string;
   amount: number;
+  amount_paid: number | null;
   status: ReceivableStatus;
   paid_at: string | null;
   payment_method: PaymentMethod | null;
