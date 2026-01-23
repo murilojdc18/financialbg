@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase } from "@/lib/supabaseClient";
+import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -44,25 +44,7 @@ async function getClientId(userId: string): Promise<string | null> {
   return profile?.client_id ?? null;
 }
 
-/**
- * Try to insert a CLIENT role for a new user
- */
-async function ensureClientRole(userId: string): Promise<boolean> {
-  const { error } = await supabase
-    .from('user_roles')
-    .insert({ user_id: userId, role: 'CLIENT' });
-
-  if (error) {
-    // Check if it's a unique constraint violation (role already exists)
-    if (error.code === '23505') {
-      return true; // Role already exists, that's fine
-    }
-    console.error('[PortalLogin] Error inserting CLIENT role:', error);
-    return false;
-  }
-
-  return true;
-}
+// Role is managed by trigger/edge function - no client-side insertion allowed
 
 export default function PortalLogin() {
   const [email, setEmail] = useState("");
@@ -120,7 +102,7 @@ export default function PortalLogin() {
       const { error: signInError } = await signIn(email, password);
 
       if (signInError) {
-        console.error('[PortalLogin] Sign in error:', signInError);
+        console.error('[PortalLogin] Sign in error:', signInError.message);
         const msg = signInError.message === "Invalid login credentials" 
           ? "Email ou senha incorretos" 
           : signInError.message;
@@ -144,16 +126,7 @@ export default function PortalLogin() {
       }
 
       // Check role via user_roles
-      let role = await getUserRole(signedInUser.id);
-
-      // If no role, try to create CLIENT role
-      if (!role) {
-        console.log('[PortalLogin] No role found, attempting to create CLIENT role');
-        const created = await ensureClientRole(signedInUser.id);
-        if (created) {
-          role = 'CLIENT';
-        }
-      }
+      const role = await getUserRole(signedInUser.id);
 
       // Get client_id
       const clientId = await getClientId(signedInUser.id);

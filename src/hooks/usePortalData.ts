@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '@/integrations/supabase/client';
 import { useProfile } from './useProfile';
 import { DbOperation, DbReceivable } from '@/types/database';
 
@@ -129,7 +129,7 @@ export function usePortalAllOperations(statusFilter?: string) {
         .order('created_at', { ascending: false });
 
       if (statusFilter && statusFilter !== 'TODAS') {
-        query = query.eq('status', statusFilter);
+        query = query.eq('status', statusFilter as 'ATIVA' | 'QUITADA' | 'CANCELADA');
       }
 
       const { data, error } = await query;

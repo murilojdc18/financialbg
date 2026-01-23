@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -115,7 +115,7 @@ export default function Signup() {
       const { error } = await signUp(email, password);
 
       if (error) {
-        console.error('[Signup] Error:', error);
+        console.error('[Signup] Error:', error.message);
         let message = error.message;
         if (error.message.includes('already registered')) {
           message = 'Este e-mail já está cadastrado';

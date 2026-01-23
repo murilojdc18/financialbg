@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -109,7 +109,7 @@ export default function Login() {
       const { error: signInError } = await signIn(email, password);
 
       if (signInError) {
-        console.error('[Login] Sign in error:', signInError);
+        console.error('[Login] Sign in error:', signInError.message);
         const msg = signInError.message === 'Invalid login credentials' 
           ? 'E-mail ou senha incorretos' 
           : signInError.message;
@@ -187,8 +187,8 @@ export default function Login() {
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Acesso Administrativo</CardTitle>
-          <CardDescription>Entre com sua conta de administrador</CardDescription>
+          <CardTitle className="text-2xl">Acesso ao Sistema</CardTitle>
+          <CardDescription>Entre com suas credenciais</CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
