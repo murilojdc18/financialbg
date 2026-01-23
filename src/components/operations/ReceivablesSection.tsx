@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -14,12 +16,15 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Loader2, Receipt, AlertCircle, Info } from "lucide-react";
+import { Loader2, Receipt, AlertCircle, Info, CheckCircle } from "lucide-react";
 import { format, parseISO, isBefore, startOfDay } from "date-fns";
 import { formatCurrency } from "@/lib/loan-calculator";
-import { calculateLateFees, LateFeeConfig } from "@/lib/late-fee-calculator";
-import { useReceivablesByOperation } from "@/hooks/useReceivables";
+import { calculateLateFees, LateFeeConfig, LateFeeResult } from "@/lib/late-fee-calculator";
+import { useReceivablesByOperation, useUpdateReceivable } from "@/hooks/useReceivables";
 import { DbReceivable, ReceivableStatus, PaymentMethod } from "@/types/database";
+import { MarkReceivablePaidDialog } from "./MarkReceivablePaidDialog";
+import { useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
 
 interface ReceivablesSectionProps {
   operationId: string;
@@ -59,8 +64,67 @@ function getDisplayStatus(receivable: DbReceivable): ReceivableStatus {
   return "EM_ABERTO";
 }
 
+interface SelectedReceivable {
+  id: string;
+  installmentNumber: number;
+  originalAmount: number;
+  lateFeeResult: LateFeeResult;
+}
+
 export function ReceivablesSection({ operationId, lateFeeConfig }: ReceivablesSectionProps) {
   const { data: receivables, isLoading, error } = useReceivablesByOperation(operationId);
+  const updateReceivable = useUpdateReceivable();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [selectedReceivable, setSelectedReceivable] = useState<SelectedReceivable | null>(null);
+
+  const handleMarkAsPaid = (
+    receivable: DbReceivable,
+    lateFeeResult: LateFeeResult
+  ) => {
+    setSelectedReceivable({
+      id: receivable.id,
+      installmentNumber: receivable.installment_number,
+      originalAmount: receivable.amount,
+      lateFeeResult,
+    });
+    setDialogOpen(true);
+  };
+
+  const handleConfirmPayment = async (data: {
+    paidAt: Date;
+    paymentMethod: PaymentMethod;
+    amountPaid: number;
+  }) => {
+    if (!selectedReceivable) return;
+
+    try {
+      await updateReceivable.mutateAsync({
+        id: selectedReceivable.id,
+        status: "PAGO",
+        paid_at: data.paidAt.toISOString(),
+        payment_method: data.paymentMethod,
+        amount_paid: data.amountPaid,
+      });
+      
+      // Invalidate queries to refresh the list
+      queryClient.invalidateQueries({ queryKey: ["receivables", "operation", operationId] });
+      
+      toast({
+        title: "Pagamento registrado!",
+        description: `Parcela ${selectedReceivable.installmentNumber} marcada como paga.`,
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Erro ao registrar pagamento",
+        description: error instanceof Error ? error.message : "Tente novamente.",
+      });
+      throw error;
+    }
+  };
 
   return (
     <TooltipProvider>
@@ -112,6 +176,7 @@ export function ReceivablesSection({ operationId, lateFeeConfig }: ReceivablesSe
                     <TableHead className="text-center">Status</TableHead>
                     <TableHead>Pago em</TableHead>
                     <TableHead>Método</TableHead>
+                    <TableHead className="text-right w-32">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -197,6 +262,18 @@ export function ReceivablesSection({ operationId, lateFeeConfig }: ReceivablesSe
                             ? paymentMethodLabels[receivable.payment_method]
                             : "—"}
                         </TableCell>
+                        <TableCell className="text-right">
+                          {!isPaid && lateFeeResult && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleMarkAsPaid(receivable, lateFeeResult)}
+                            >
+                              <CheckCircle className="h-4 w-4 mr-1" />
+                              Pagar
+                            </Button>
+                          )}
+                        </TableCell>
                       </TableRow>
                     );
                   })}
@@ -206,6 +283,19 @@ export function ReceivablesSection({ operationId, lateFeeConfig }: ReceivablesSe
           )}
         </CardContent>
       </Card>
+
+      {/* Dialog para marcar como pago */}
+      {selectedReceivable && (
+        <MarkReceivablePaidDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          installmentNumber={selectedReceivable.installmentNumber}
+          originalAmount={selectedReceivable.originalAmount}
+          updatedAmount={selectedReceivable.lateFeeResult.updatedAmount}
+          hasLateFees={selectedReceivable.lateFeeResult.hasLateFees}
+          onConfirm={handleConfirmPayment}
+        />
+      )}
     </TooltipProvider>
   );
 }
