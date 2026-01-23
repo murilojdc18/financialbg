@@ -1,21 +1,23 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useUserRole } from '@/hooks/useUserRole';
-import { useClientId } from '@/hooks/useClientId';
 import { Loader2 } from 'lucide-react';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
 }
 
+/**
+ * Protege rotas do backoffice - apenas ADMIN pode acessar.
+ * CLIENTs são redirecionados para o portal.
+ */
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
   const { user, loading: authLoading } = useAuth();
-  const { isAdmin, isClient, isLoading: roleLoading, role } = useUserRole();
-  const { clientId, isLoading: clientIdLoading } = useClientId();
+  const { isAdmin, isClient, isLoading: roleLoading } = useUserRole();
   const location = useLocation();
 
   // Show loading while checking auth and role
-  if (authLoading || roleLoading || clientIdLoading) {
+  if (authLoading || roleLoading) {
     return (
       <div className="flex h-screen items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -28,18 +30,14 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // CLIENT -> redirect to portal
-  if (isClient) {
-    if (clientId) {
-      return <Navigate to="/portal/dashboard" replace />;
-    } else {
-      return <Navigate to="/portal/vincular" replace />;
-    }
-  }
-
   // ADMIN -> allow access to backoffice
   if (isAdmin) {
     return <>{children}</>;
+  }
+
+  // CLIENT -> redirect to portal (let PortalProtectedRoute handle vincular logic)
+  if (isClient) {
+    return <Navigate to="/portal/dashboard" replace />;
   }
 
   // No role found -> show error with clear message
