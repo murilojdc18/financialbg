@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, FileText, Star, Award, LogOut, Menu } from "lucide-react";
+import { LayoutDashboard, FileText, LogOut, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
@@ -18,8 +18,6 @@ interface PortalLayoutProps {
 const menuItems = [
   { title: "Dashboard", url: "/portal/dashboard", icon: LayoutDashboard },
   { title: "Operações", url: "/portal/operacoes", icon: FileText },
-  { title: "Pontos", url: "/portal/pontos", icon: Star },
-  { title: "Certificado", url: "/portal/certificado", icon: Award },
 ];
 
 function NavItem({ item, isActive, onClick }: { 

@@ -22,8 +22,6 @@ import PortalVincular from "./pages/portal/PortalVincular";
 import PortalDashboard from "./pages/portal/PortalDashboard";
 import PortalOperacoes from "./pages/portal/PortalOperacoes";
 import PortalOperacaoDetalhes from "./pages/portal/PortalOperacaoDetalhes";
-import PortalPontos from "./pages/portal/PortalPontos";
-import PortalCertificado from "./pages/portal/PortalCertificado";
 
 const queryClient = new QueryClient();
 
@@ -125,26 +123,6 @@ const App = () => (
                 <PortalProtectedRoute>
                   <PortalLayout>
                     <PortalOperacaoDetalhes />
-                  </PortalLayout>
-                </PortalProtectedRoute>
-              }
-            />
-            <Route
-              path="/portal/pontos"
-              element={
-                <PortalProtectedRoute>
-                  <PortalLayout>
-                    <PortalPontos />
-                  </PortalLayout>
-                </PortalProtectedRoute>
-              }
-            />
-            <Route
-              path="/portal/certificado"
-              element={
-                <PortalProtectedRoute>
-                  <PortalLayout>
-                    <PortalCertificado />
                   </PortalLayout>
                 </PortalProtectedRoute>
               }
