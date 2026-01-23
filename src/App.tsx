@@ -18,6 +18,7 @@ import Signup from "./pages/Signup";
 import NotFound from "./pages/NotFound";
 // Portal pages
 import PortalLogin from "./pages/portal/PortalLogin";
+import PortalVincular from "./pages/portal/PortalVincular";
 import PortalDashboard from "./pages/portal/PortalDashboard";
 import PortalOperacoes from "./pages/portal/PortalOperacoes";
 import PortalOperacaoDetalhes from "./pages/portal/PortalOperacaoDetalhes";
@@ -90,6 +91,14 @@ const App = () => (
 
             {/* Portal do Cliente routes */}
             <Route path="/portal/login" element={<PortalLogin />} />
+            <Route
+              path="/portal/vincular"
+              element={
+                <PortalProtectedRoute allowUnlinked>
+                  <PortalVincular />
+                </PortalProtectedRoute>
+              }
+            />
             <Route
               path="/portal/dashboard"
               element={
