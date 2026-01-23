@@ -4,11 +4,12 @@ import { useProfile } from '@/hooks/useProfile';
 
 interface PortalProtectedRouteProps {
   children: React.ReactNode;
+  allowUnlinked?: boolean; // Allow access even if client_id is null (for /portal/vincular)
 }
 
-export function PortalProtectedRoute({ children }: PortalProtectedRouteProps) {
+export function PortalProtectedRoute({ children, allowUnlinked = false }: PortalProtectedRouteProps) {
   const { user, loading: authLoading } = useAuth();
-  const { profile, isLoading: profileLoading, isAdmin, isClient } = useProfile();
+  const { profile, isLoading: profileLoading, isAdmin, isClient, clientId } = useProfile();
   const location = useLocation();
 
   // Show loading while checking auth and profile
@@ -25,7 +26,27 @@ export function PortalProtectedRoute({ children }: PortalProtectedRouteProps) {
     return <Navigate to="/portal/login" state={{ from: location }} replace />;
   }
 
-  // No profile found -> show error or redirect
+  // ADMIN -> redirect to backoffice
+  if (isAdmin) {
+    return <Navigate to="/operacoes" replace />;
+  }
+
+  // CLIENT without client_id -> redirect to vincular (unless we're already there)
+  if (isClient && !clientId && !allowUnlinked) {
+    return <Navigate to="/portal/vincular" replace />;
+  }
+
+  // CLIENT -> allow access (with or without client_id if allowUnlinked)
+  if (isClient || (profile && !clientId && allowUnlinked)) {
+    return <>{children}</>;
+  }
+
+  // No profile found -> allow access to vincular page for profile creation
+  if (!profile && allowUnlinked) {
+    return <>{children}</>;
+  }
+
+  // No profile and not on vincular -> show error
   if (!profile) {
     return (
       <div className="flex h-screen flex-col items-center justify-center gap-4 p-4 text-center">
@@ -35,16 +56,6 @@ export function PortalProtectedRoute({ children }: PortalProtectedRouteProps) {
         </p>
       </div>
     );
-  }
-
-  // ADMIN -> redirect to backoffice
-  if (isAdmin) {
-    return <Navigate to="/operacoes" replace />;
-  }
-
-  // CLIENT -> allow access
-  if (isClient) {
-    return <>{children}</>;
   }
 
   // Unknown role -> show error
