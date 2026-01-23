@@ -8,25 +8,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
-import { DbOperationWithClient, OperationStatus } from "@/types/database";
+import { DbOperationWithClient } from "@/types/database";
 import { formatCurrency, formatPercent } from "@/lib/loan-calculator";
 import { format, parseISO } from "date-fns";
 import { useNavigate } from "react-router-dom";
+import { StatusSelect } from "./StatusSelect";
 
 interface OperationsTableProps {
   operations: DbOperationWithClient[];
   clients: { id: string; name: string }[];
 }
-
-const statusConfig: Record<
-  OperationStatus,
-  { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
-> = {
-  ATIVA: { label: "Ativa", variant: "default" },
-  QUITADA: { label: "Quitada", variant: "secondary" },
-  CANCELADA: { label: "Cancelada", variant: "destructive" },
-};
 
 const systemLabels: Record<string, string> = {
   PRICE: "Price",
@@ -57,9 +48,7 @@ export function OperationsTable({ operations }: OperationsTableProps) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {operations.map((operation) => {
-            const status = statusConfig[operation.status];
-            return (
+          {operations.map((operation) => (
               <TableRow key={operation.id}>
                 <TableCell className="font-mono text-sm">
                   {operation.id.slice(0, 8)}
@@ -80,7 +69,11 @@ export function OperationsTable({ operations }: OperationsTableProps) {
                   {systemLabels[operation.system]}
                 </TableCell>
                 <TableCell className="text-center">
-                  <Badge variant={status.variant}>{status.label}</Badge>
+                  <StatusSelect
+                    operationId={operation.id}
+                    currentStatus={operation.status}
+                    variant="table"
+                  />
                 </TableCell>
                 <TableCell>
                   {format(parseISO(operation.created_at), "dd/MM/yyyy")}
@@ -96,8 +89,7 @@ export function OperationsTable({ operations }: OperationsTableProps) {
                   </Button>
                 </TableCell>
               </TableRow>
-            );
-          })}
+            ))}
         </TableBody>
       </Table>
     </div>
