@@ -305,7 +305,14 @@ export default function OperacaoDetalhes() {
         </div>
 
         {/* Parcelas do Supabase */}
-        <ReceivablesSection operationId={operation.id} />
+        <ReceivablesSection 
+          operationId={operation.id} 
+          lateFeeConfig={{
+            lateGraceDays: operation.late_grace_days ?? 0,
+            latePenaltyPercent: Number(operation.late_penalty_percent) ?? 2,
+            lateInterestMonthlyPercent: Number(operation.late_interest_monthly_percent) ?? 1,
+          }}
+        />
 
         {/* Cronograma Simulado (para referência) */}
         <InstallmentScheduleTable result={loanResult} />
