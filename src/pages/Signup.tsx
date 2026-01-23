@@ -19,6 +19,40 @@ const signupSchema = z.object({
   path: ['confirmPassword'],
 });
 
+/**
+ * Check user role via has_role RPC function
+ */
+async function getUserRole(userId: string): Promise<'ADMIN' | 'CLIENT' | null> {
+  const { data: isAdmin, error: adminError } = await supabase
+    .rpc('has_role', { _user_id: userId, _role: 'ADMIN' });
+
+  if (!adminError && isAdmin === true) {
+    return 'ADMIN';
+  }
+
+  const { data: isClient, error: clientError } = await supabase
+    .rpc('has_role', { _user_id: userId, _role: 'CLIENT' });
+
+  if (!clientError && isClient === true) {
+    return 'CLIENT';
+  }
+
+  return null;
+}
+
+/**
+ * Get client_id from profiles table
+ */
+async function getClientId(userId: string): Promise<string | null> {
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('client_id')
+    .eq('id', userId)
+    .maybeSingle();
+
+  return profile?.client_id ?? null;
+}
+
 export default function Signup() {
   const { user, signUp, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -37,23 +71,20 @@ export default function Signup() {
       if (!user) return;
 
       try {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('role, client_id')
-          .eq('id', user.id)
-          .maybeSingle();
+        const role = await getUserRole(user.id);
+        const clientId = await getClientId(user.id);
 
-        if (profile?.role === 'ADMIN') {
+        if (role === 'ADMIN') {
           navigate('/operacoes', { replace: true });
-        } else if (profile?.role === 'CLIENT') {
-          if (profile.client_id) {
+        } else if (role === 'CLIENT') {
+          if (clientId) {
             navigate('/portal/dashboard', { replace: true });
           } else {
             navigate('/portal/vincular', { replace: true });
           }
         }
       } catch (err) {
-        console.error('[Signup] Error checking profile:', err);
+        console.error('[Signup] Error checking role:', err);
       }
     };
 
@@ -104,22 +135,19 @@ export default function Signup() {
       const { data: { session } } = await supabase.auth.getSession();
 
       if (session) {
-        // User is logged in immediately, check profile and redirect
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('role, client_id')
-          .eq('id', session.user.id)
-          .maybeSingle();
+        // User is logged in immediately, check role and redirect
+        const role = await getUserRole(session.user.id);
+        const clientId = await getClientId(session.user.id);
 
         toast({
           title: 'Conta criada!',
           description: 'Sua conta foi criada com sucesso.',
         });
 
-        if (profile?.role === 'ADMIN') {
+        if (role === 'ADMIN') {
           navigate('/operacoes', { replace: true });
         } else {
-          // Default to portal for new users
+          // Default to portal for new users (they'll need role assigned)
           navigate('/portal/vincular', { replace: true });
         }
       } else {
