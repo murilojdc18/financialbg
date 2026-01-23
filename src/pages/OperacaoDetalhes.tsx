@@ -1,7 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -25,17 +24,9 @@ import { useOperation } from "@/hooks/useOperations";
 import { formatCurrency, formatPercent, calculateLoan } from "@/lib/loan-calculator";
 import { InstallmentScheduleTable } from "@/components/simulator/InstallmentScheduleTable";
 import { ReceivablesSection } from "@/components/operations/ReceivablesSection";
+import { StatusSelect } from "@/components/operations/StatusSelect";
 import { format, parseISO } from "date-fns";
-import { OperationStatus } from "@/types/database";
 
-const statusConfig: Record<
-  OperationStatus,
-  { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
-> = {
-  ATIVA: { label: "Ativa", variant: "default" },
-  QUITADA: { label: "Quitada", variant: "secondary" },
-  CANCELADA: { label: "Cancelada", variant: "destructive" },
-};
 
 export default function OperacaoDetalhes() {
   const { id } = useParams<{ id: string }>();
@@ -71,7 +62,6 @@ export default function OperacaoDetalhes() {
   }
 
   const client = operation.clients;
-  const status = statusConfig[operation.status];
 
   // Calculate loan schedule using existing calculator
   const loanResult = calculateLoan({
@@ -173,7 +163,11 @@ export default function OperacaoDetalhes() {
                   <CreditCard className="h-5 w-5 text-primary" />
                   <CardTitle>Dados da Operação</CardTitle>
                 </div>
-                <Badge variant={status.variant}>{status.label}</Badge>
+                <StatusSelect
+                  operationId={operation.id}
+                  currentStatus={operation.status}
+                  variant="detail"
+                />
               </div>
               <CardDescription>Informações detalhadas do empréstimo</CardDescription>
             </CardHeader>
