@@ -13,7 +13,7 @@ export interface Profile {
 export function useProfile() {
   const { user } = useAuth();
 
-  const { data: profile, isLoading, error } = useQuery({
+  const { data: profile, isLoading, error, refetch } = useQuery({
     queryKey: ['profile', user?.id],
     queryFn: async () => {
       if (!user?.id) return null;
@@ -24,17 +24,22 @@ export function useProfile() {
         .eq('id', user.id)
         .maybeSingle();
 
-      if (error) throw error;
+      if (error) {
+        console.error('[useProfile] Error fetching profile:', error);
+        throw error;
+      }
       return data as Profile | null;
     },
     enabled: !!user?.id,
     staleTime: 5 * 60 * 1000, // 5 minutes
+    retry: 1,
   });
 
   return {
     profile,
     isLoading,
-    error,
+    error: error ? (error as Error).message : null,
+    refetch,
     isAdmin: profile?.role === 'ADMIN',
     isClient: profile?.role === 'CLIENT',
     clientId: profile?.client_id,

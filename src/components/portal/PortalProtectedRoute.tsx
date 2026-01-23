@@ -1,6 +1,8 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useProfile } from '@/hooks/useProfile';
+import { Button } from '@/components/ui/button';
+import { LogOut, RefreshCw } from 'lucide-react';
 
 interface PortalProtectedRouteProps {
   children: React.ReactNode;
@@ -8,8 +10,8 @@ interface PortalProtectedRouteProps {
 }
 
 export function PortalProtectedRoute({ children, allowUnlinked = false }: PortalProtectedRouteProps) {
-  const { user, loading: authLoading } = useAuth();
-  const { profile, isLoading: profileLoading, isAdmin, isClient, clientId } = useProfile();
+  const { user, loading: authLoading, signOut } = useAuth();
+  const { profile, isLoading: profileLoading, isAdmin, isClient, clientId, error } = useProfile();
   const location = useLocation();
 
   // Show loading while checking auth and profile
@@ -26,6 +28,26 @@ export function PortalProtectedRoute({ children, allowUnlinked = false }: Portal
     return <Navigate to="/portal/login" state={{ from: location }} replace />;
   }
 
+  // Error loading profile
+  if (error) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-4 p-4 text-center">
+        <h1 className="text-2xl font-bold text-destructive">Erro ao carregar perfil</h1>
+        <p className="text-muted-foreground max-w-md">{error}</p>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => window.location.reload()}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Tentar novamente
+          </Button>
+          <Button variant="destructive" onClick={() => signOut()}>
+            <LogOut className="mr-2 h-4 w-4" />
+            Sair
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   // ADMIN -> redirect to backoffice
   if (isAdmin) {
     return <Navigate to="/operacoes" replace />;
@@ -37,7 +59,7 @@ export function PortalProtectedRoute({ children, allowUnlinked = false }: Portal
   }
 
   // CLIENT -> allow access (with or without client_id if allowUnlinked)
-  if (isClient || (profile && !clientId && allowUnlinked)) {
+  if (isClient) {
     return <>{children}</>;
   }
 
@@ -46,7 +68,7 @@ export function PortalProtectedRoute({ children, allowUnlinked = false }: Portal
     return <>{children}</>;
   }
 
-  // No profile and not on vincular -> show error
+  // No profile and not on vincular -> show error with actions
   if (!profile) {
     return (
       <div className="flex h-screen flex-col items-center justify-center gap-4 p-4 text-center">
@@ -54,15 +76,29 @@ export function PortalProtectedRoute({ children, allowUnlinked = false }: Portal
         <p className="text-muted-foreground max-w-md">
           Seu perfil ainda não foi configurado. Entre em contato com o administrador.
         </p>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => window.location.reload()}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Tentar novamente
+          </Button>
+          <Button variant="destructive" onClick={() => signOut()}>
+            <LogOut className="mr-2 h-4 w-4" />
+            Sair
+          </Button>
+        </div>
       </div>
     );
   }
 
-  // Unknown role -> show error
+  // Unknown role -> show error with actions
   return (
     <div className="flex h-screen flex-col items-center justify-center gap-4 p-4 text-center">
       <h1 className="text-2xl font-bold text-destructive">Acesso negado</h1>
       <p className="text-muted-foreground">Você não tem permissão para acessar o portal.</p>
+      <Button variant="destructive" onClick={() => signOut()}>
+        <LogOut className="mr-2 h-4 w-4" />
+        Sair
+      </Button>
     </div>
   );
 }

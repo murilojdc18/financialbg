@@ -1,12 +1,13 @@
-import { useState } from 'react';
-import { Link, Navigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabaseClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, UserPlus } from 'lucide-react';
+import { Loader2, UserPlus, AlertCircle, CheckCircle } from 'lucide-react';
 import { z } from 'zod';
 
 const signupSchema = z.object({
@@ -20,12 +21,132 @@ const signupSchema = z.object({
 
 export default function Signup() {
   const { user, signUp, loading: authLoading } = useAuth();
+  const navigate = useNavigate();
   const { toast } = useToast();
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // Redirect if already logged in
+  useEffect(() => {
+    const checkAndRedirect = async () => {
+      if (!user) return;
+
+      try {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role, client_id')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        if (profile?.role === 'ADMIN') {
+          navigate('/operacoes', { replace: true });
+        } else if (profile?.role === 'CLIENT') {
+          if (profile.client_id) {
+            navigate('/portal/dashboard', { replace: true });
+          } else {
+            navigate('/portal/vincular', { replace: true });
+          }
+        }
+      } catch (err) {
+        console.error('[Signup] Error checking profile:', err);
+      }
+    };
+
+    checkAndRedirect();
+  }, [user, navigate]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    
+    const validation = signupSchema.safeParse({ email, password, confirmPassword });
+    if (!validation.success) {
+      const msg = validation.error.errors[0].message;
+      setErrorMessage(msg);
+      toast({
+        variant: 'destructive',
+        title: 'Erro de validação',
+        description: msg,
+      });
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const { error } = await signUp(email, password);
+
+      if (error) {
+        console.error('[Signup] Error:', error);
+        let message = error.message;
+        if (error.message.includes('already registered')) {
+          message = 'Este e-mail já está cadastrado';
+        } else if (error.message.includes('valid email')) {
+          message = 'E-mail inválido';
+        }
+        setErrorMessage(message);
+        toast({
+          variant: 'destructive',
+          title: 'Erro ao criar conta',
+          description: message,
+        });
+        setLoading(false);
+        return;
+      }
+
+      // Check if we got a session back (email confirmation disabled)
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (session) {
+        // User is logged in immediately, check profile and redirect
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role, client_id')
+          .eq('id', session.user.id)
+          .maybeSingle();
+
+        toast({
+          title: 'Conta criada!',
+          description: 'Sua conta foi criada com sucesso.',
+        });
+
+        if (profile?.role === 'ADMIN') {
+          navigate('/operacoes', { replace: true });
+        } else {
+          // Default to portal for new users
+          navigate('/portal/vincular', { replace: true });
+        }
+      } else {
+        // Email confirmation required
+        setSuccessMessage('Conta criada! Verifique seu e-mail para confirmar o cadastro.');
+        toast({
+          title: 'Conta criada!',
+          description: 'Verifique seu e-mail para confirmar o cadastro.',
+        });
+        
+        // Clear form
+        setEmail('');
+        setPassword('');
+        setConfirmPassword('');
+      }
+    } catch (err) {
+      console.error('[Signup] Unexpected error:', err);
+      setErrorMessage('Erro inesperado. Tente novamente.');
+      toast({
+        variant: 'destructive',
+        title: 'Erro',
+        description: 'Erro inesperado. Tente novamente.',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (authLoading) {
     return (
@@ -34,46 +155,6 @@ export default function Signup() {
       </div>
     );
   }
-
-  if (user) {
-    return <Navigate to="/simulador-emprestimo" replace />;
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    const validation = signupSchema.safeParse({ email, password, confirmPassword });
-    if (!validation.success) {
-      toast({
-        variant: 'destructive',
-        title: 'Erro de validação',
-        description: validation.error.errors[0].message,
-      });
-      return;
-    }
-
-    setLoading(true);
-    const { error } = await signUp(email, password);
-    setLoading(false);
-
-    if (error) {
-      let message = error.message;
-      if (error.message.includes('already registered')) {
-        message = 'Este e-mail já está cadastrado';
-      }
-      toast({
-        variant: 'destructive',
-        title: 'Erro ao criar conta',
-        description: message,
-      });
-      return;
-    }
-
-    toast({
-      title: 'Conta criada!',
-      description: 'Verifique seu e-mail para confirmar o cadastro.',
-    });
-  };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
@@ -84,6 +165,18 @@ export default function Signup() {
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
+            {errorMessage && (
+              <div className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+                <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                <span>{errorMessage}</span>
+              </div>
+            )}
+            {successMessage && (
+              <div className="flex items-center gap-2 rounded-md border border-primary/50 bg-primary/10 p-3 text-sm text-primary">
+                <CheckCircle className="h-4 w-4 flex-shrink-0" />
+                <span>{successMessage}</span>
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="email">E-mail</Label>
               <Input
@@ -92,6 +185,7 @@ export default function Signup() {
                 placeholder="seu@email.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                disabled={loading}
                 required
               />
             </div>
@@ -103,6 +197,7 @@ export default function Signup() {
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                disabled={loading}
                 required
               />
             </div>
@@ -114,6 +209,7 @@ export default function Signup() {
                 placeholder="••••••••"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
+                disabled={loading}
                 required
               />
             </div>
@@ -125,7 +221,7 @@ export default function Signup() {
               ) : (
                 <UserPlus className="mr-2 h-4 w-4" />
               )}
-              Criar Conta
+              {loading ? 'Criando...' : 'Criar Conta'}
             </Button>
             <p className="text-sm text-muted-foreground">
               Já tem conta?{' '}
