@@ -19,17 +19,17 @@ const loginSchema = z.object({
  * Check user role via has_role RPC function
  */
 async function getUserRole(userId: string): Promise<'ADMIN' | 'CLIENT' | null> {
-  // Check ADMIN first
+  // Check admin first (lowercase for enum)
   const { data: isAdmin, error: adminError } = await supabase
-    .rpc('has_role', { _user_id: userId, _role: 'ADMIN' });
+    .rpc('has_role', { _user_id: userId, _role: 'admin' });
 
   if (!adminError && isAdmin === true) {
     return 'ADMIN';
   }
 
-  // Check CLIENT
+  // Check client (lowercase for enum)
   const { data: isClient, error: clientError } = await supabase
-    .rpc('has_role', { _user_id: userId, _role: 'CLIENT' });
+    .rpc('has_role', { _user_id: userId, _role: 'client' });
 
   if (!clientError && isClient === true) {
     return 'CLIENT';

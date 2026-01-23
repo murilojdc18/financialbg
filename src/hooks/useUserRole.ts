@@ -25,36 +25,34 @@ export function useUserRole(): UseUserRoleResult {
     queryFn: async (): Promise<AppRole | null> => {
       if (!user?.id) return null;
 
-      // First check if user has ADMIN role in user_roles
+      // First check if user has admin role in user_roles (lowercase for enum)
       const { data: isAdmin, error: adminError } = await supabase
-        .rpc('has_role', { _user_id: user.id, _role: 'ADMIN' });
+        .rpc('has_role', { _user_id: user.id, _role: 'admin' });
 
       if (adminError) {
-        console.error('[useUserRole] Error checking ADMIN role:', adminError);
-        // Fallback to profiles table
-        return await checkProfileRole(user.id);
+        console.error('[useUserRole] Error checking admin role:', adminError);
+        return null;
       }
 
       if (isAdmin === true) {
         return 'ADMIN';
       }
 
-      // Check if user has CLIENT role in user_roles
+      // Check if user has client role in user_roles (lowercase for enum)
       const { data: isClient, error: clientError } = await supabase
-        .rpc('has_role', { _user_id: user.id, _role: 'CLIENT' });
+        .rpc('has_role', { _user_id: user.id, _role: 'client' });
 
       if (clientError) {
-        console.error('[useUserRole] Error checking CLIENT role:', clientError);
-        // Fallback to profiles table
-        return await checkProfileRole(user.id);
+        console.error('[useUserRole] Error checking client role:', clientError);
+        return null;
       }
 
       if (isClient === true) {
         return 'CLIENT';
       }
 
-      // No role found in user_roles, fallback to profiles
-      return await checkProfileRole(user.id);
+      // No role found
+      return null;
     },
     enabled: !!user?.id,
     staleTime: 5 * 60 * 1000, // 5 minutes
@@ -71,24 +69,4 @@ export function useUserRole(): UseUserRoleResult {
   };
 }
 
-/**
- * Fallback function to check role from profiles table
- */
-async function checkProfileRole(userId: string): Promise<AppRole | null> {
-  const { data: profile, error } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', userId)
-    .maybeSingle();
-
-  if (error) {
-    console.error('[useUserRole] Error fetching profile role:', error);
-    return null;
-  }
-
-  if (profile?.role === 'ADMIN' || profile?.role === 'CLIENT') {
-    return profile.role;
-  }
-
-  return null;
-}
+// Removed profile fallback - roles must be in user_roles table
