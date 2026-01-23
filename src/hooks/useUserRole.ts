@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 
 export type AppRole = 'ADMIN' | 'CLIENT';
@@ -30,7 +30,7 @@ export function useUserRole(): UseUserRoleResult {
         .rpc('has_role', { _user_id: user.id, _role: 'admin' });
 
       if (adminError) {
-        console.error('[useUserRole] Error checking admin role:', adminError);
+        console.error('[useUserRole] Error checking admin role:', adminError.message);
         return null;
       }
 
@@ -43,7 +43,7 @@ export function useUserRole(): UseUserRoleResult {
         .rpc('has_role', { _user_id: user.id, _role: 'client' });
 
       if (clientError) {
-        console.error('[useUserRole] Error checking client role:', clientError);
+        console.error('[useUserRole] Error checking client role:', clientError.message);
         return null;
       }
 

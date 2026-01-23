@@ -119,7 +119,7 @@ Deno.serve(async (req) => {
     const phoneDigits = client.phone ? normalizeDocument(client.phone).slice(-4) : "";
     const secondFactorNormalized = normalizeDocument(secondFactor);
 
-    console.log("Comparing second factor:", secondFactorNormalized, "with phone digits:", phoneDigits);
+    // Second factor comparison (no sensitive data logged)
 
     const isSecondFactorValid = phoneDigits.length >= 4 && secondFactorNormalized === phoneDigits;
 

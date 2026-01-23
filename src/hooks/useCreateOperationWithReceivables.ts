@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '@/integrations/supabase/client';
 import { OperationSystem } from '@/types/database';
 import { useToast } from '@/hooks/use-toast';
 
@@ -38,7 +38,7 @@ export function useCreateOperationWithReceivables() {
         p_fee_fixed: input.fee_fixed || 0,
         p_fee_insurance: input.fee_insurance || 0,
         p_notes: input.notes || null,
-        p_receivables: input.receivables,
+        p_receivables: JSON.parse(JSON.stringify(input.receivables)),
       });
 
       if (error) throw error;
