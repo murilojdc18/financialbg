@@ -1,10 +1,34 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+// Allowed origins for CORS - restrict to known domains
+const allowedOrigins = [
+  'https://financialbg.lovable.app',
+  'https://id-preview--7f360290-8514-4e33-a842-b25c44a243a7.lovable.app',
+  'https://lipvstajrfjjxddtypnv.supabase.co',
+  // Development origins
+  'http://localhost:8080',
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:8080',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:3000',
+];
+
+// Rate limiting configuration
+const RATE_LIMIT_MAX_ATTEMPTS = 5; // Max attempts per hour
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour in milliseconds
+
+function getCorsHeaders(origin: string | null): Record<string, string> {
+  const allowedOrigin = origin && allowedOrigins.includes(origin) 
+    ? origin 
+    : allowedOrigins[0];
+  
+  return {
+    "Access-Control-Allow-Origin": allowedOrigin,
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+  };
+}
 
 // Normaliza documento para apenas dígitos
 function normalizeDocument(doc: string): string {
@@ -12,7 +36,7 @@ function normalizeDocument(doc: string): string {
 }
 
 // Resposta genérica para não revelar se CPF existe
-function genericErrorResponse(message = "Não foi possível processar a solicitação") {
+function genericErrorResponse(corsHeaders: Record<string, string>, message = "Não foi possível processar a solicitação") {
   return new Response(
     JSON.stringify({ success: false, message }),
     { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -20,7 +44,10 @@ function genericErrorResponse(message = "Não foi possível processar a solicita
 }
 
 Deno.serve(async (req) => {
-  console.log("claim-client function called, method:", req.method);
+  const origin = req.headers.get("Origin");
+  const corsHeaders = getCorsHeaders(origin);
+  
+  console.log("claim-client function called, method:", req.method, "origin:", origin);
 
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
@@ -65,34 +92,75 @@ Deno.serve(async (req) => {
     const userId = user.id;
     console.log("User authenticated:", userId);
 
-    // 2. Parse e validação do body
+    // 2. Cliente com Service Role para operações privilegiadas
+    const supabaseAdmin = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+
+    // 3. Rate limiting check - count attempts in last hour
+    const oneHourAgo = new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString();
+    const { count: attemptCount, error: countError } = await supabaseAdmin
+      .from("claim_attempts")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .gte("attempted_at", oneHourAgo);
+
+    if (countError) {
+      console.error("Error checking rate limit:", countError);
+      // Continue with caution - don't block legitimate users due to DB issues
+    } else if (attemptCount !== null && attemptCount >= RATE_LIMIT_MAX_ATTEMPTS) {
+      console.log("Rate limit exceeded for user:", userId, "attempts:", attemptCount);
+      // Add delay to slow down automated attacks
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          message: "Muitas tentativas. Aguarde uma hora antes de tentar novamente." 
+        }),
+        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // 4. Log this attempt (before processing to count all attempts)
+    const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || 
+                     req.headers.get("x-real-ip") || 
+                     "unknown";
+    
+    const { error: insertAttemptError } = await supabaseAdmin
+      .from("claim_attempts")
+      .insert({ 
+        user_id: userId, 
+        ip_address: clientIp 
+      });
+
+    if (insertAttemptError) {
+      console.error("Error logging attempt:", insertAttemptError);
+      // Continue - don't block user due to logging issues
+    }
+
+    // 5. Parse e validação do body
     const body = await req.json();
     const { cpf, secondFactor } = body;
 
     if (!cpf || typeof cpf !== "string") {
-      return genericErrorResponse("CPF é obrigatório");
+      return genericErrorResponse(corsHeaders, "CPF é obrigatório");
     }
 
     if (!secondFactor || typeof secondFactor !== "string") {
-      return genericErrorResponse("Segundo fator de validação é obrigatório");
+      return genericErrorResponse(corsHeaders, "Segundo fator de validação é obrigatório");
     }
 
     const normalizedCpf = normalizeDocument(cpf);
     
     // Validação básica de CPF (11 dígitos) ou CNPJ (14 dígitos)
     if (normalizedCpf.length !== 11 && normalizedCpf.length !== 14) {
-      return genericErrorResponse("Documento inválido");
+      return genericErrorResponse(corsHeaders, "Documento inválido");
     }
 
     console.log("Processing claim for document (masked):", normalizedCpf.substring(0, 3) + "***");
 
-    // 3. Cliente com Service Role para operações privilegiadas
-    const supabaseAdmin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
-
-    // 4. Buscar cliente pelo documento normalizado
+    // 6. Buscar cliente pelo documento normalizado
     const { data: client, error: clientError } = await supabaseAdmin
       .from("clients")
       .select("id, name, portal_user_id, phone")
@@ -101,7 +169,7 @@ Deno.serve(async (req) => {
 
     if (clientError) {
       console.error("Client lookup error:", clientError);
-      return genericErrorResponse();
+      return genericErrorResponse(corsHeaders);
     }
 
     // Resposta genérica se não encontrar (não revelar se CPF existe)
@@ -109,33 +177,31 @@ Deno.serve(async (req) => {
       console.log("Client not found for document");
       // Delay artificial para dificultar timing attacks
       await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 500));
-      return genericErrorResponse("Dados não conferem. Verifique as informações.");
+      return genericErrorResponse(corsHeaders, "Dados não conferem. Verifique as informações.");
     }
 
     console.log("Client found:", client.id, "phone:", client.phone ? "***" + client.phone.slice(-4) : "none");
 
-    // 5. Validar segundo fator
-    // Regra inicial simples: comparar com os últimos 4 dígitos do telefone
+    // 7. Validar segundo fator
+    // Regra: comparar com os últimos 4 dígitos do telefone
     const phoneDigits = client.phone ? normalizeDocument(client.phone).slice(-4) : "";
     const secondFactorNormalized = normalizeDocument(secondFactor);
-
-    // Second factor comparison (no sensitive data logged)
 
     const isSecondFactorValid = phoneDigits.length >= 4 && secondFactorNormalized === phoneDigits;
 
     if (!isSecondFactorValid) {
       console.log("Second factor validation failed");
       await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 500));
-      return genericErrorResponse("Dados não conferem. Verifique as informações.");
+      return genericErrorResponse(corsHeaders, "Dados não conferem. Verifique as informações.");
     }
 
-    // 6. Verificar se já está vinculado a outro usuário
+    // 8. Verificar se já está vinculado a outro usuário
     if (client.portal_user_id && client.portal_user_id !== userId) {
       console.log("Client already linked to another user");
-      return genericErrorResponse("Este cadastro já está vinculado a outro usuário.");
+      return genericErrorResponse(corsHeaders, "Este cadastro já está vinculado a outro usuário.");
     }
 
-    // 7. Verificar se usuário já está vinculado a outro cliente
+    // 9. Verificar se usuário já está vinculado a outro cliente
     const { data: existingProfile } = await supabaseAdmin
       .from("profiles")
       .select("client_id")
@@ -144,10 +210,10 @@ Deno.serve(async (req) => {
 
     if (existingProfile?.client_id && existingProfile.client_id !== client.id) {
       console.log("User already linked to another client");
-      return genericErrorResponse("Sua conta já está vinculada a outro cadastro.");
+      return genericErrorResponse(corsHeaders, "Sua conta já está vinculada a outro cadastro.");
     }
 
-    // 8. Realizar vinculação
+    // 10. Realizar vinculação
     console.log("Linking user", userId, "to client", client.id);
 
     // Atualizar clients.portal_user_id
@@ -158,7 +224,7 @@ Deno.serve(async (req) => {
 
     if (updateClientError) {
       console.error("Error updating client:", updateClientError);
-      return genericErrorResponse("Erro ao processar vinculação.");
+      return genericErrorResponse(corsHeaders, "Erro ao processar vinculação.");
     }
 
     // Atualizar ou criar profile
@@ -179,7 +245,7 @@ Deno.serve(async (req) => {
         .from("clients")
         .update({ portal_user_id: null })
         .eq("id", client.id);
-      return genericErrorResponse("Erro ao processar vinculação.");
+      return genericErrorResponse(corsHeaders, "Erro ao processar vinculação.");
     }
 
     // Garantir que user tem role CLIENT em user_roles
@@ -198,6 +264,13 @@ Deno.serve(async (req) => {
       // Não falha a operação por isso
     }
 
+    // 11. Clean up old attempts (best effort - run periodically)
+    try {
+      await supabaseAdmin.rpc("cleanup_old_claim_attempts");
+    } catch (cleanupError) {
+      console.log("Cleanup skipped:", cleanupError);
+    }
+
     console.log("Claim successful for client:", client.id);
 
     return new Response(
@@ -214,6 +287,6 @@ Deno.serve(async (req) => {
 
   } catch (error) {
     console.error("Unexpected error:", error);
-    return genericErrorResponse("Erro interno do servidor.");
+    return genericErrorResponse(corsHeaders, "Erro interno do servidor.");
   }
 });
