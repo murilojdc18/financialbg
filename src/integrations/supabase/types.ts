@@ -14,6 +14,27 @@ export type Database = {
   }
   public: {
     Tables: {
+      claim_attempts: {
+        Row: {
+          attempted_at: string
+          id: string
+          ip_address: string | null
+          user_id: string
+        }
+        Insert: {
+          attempted_at?: string
+          id?: string
+          ip_address?: string | null
+          user_id: string
+        }
+        Update: {
+          attempted_at?: string
+          id?: string
+          ip_address?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       clients: {
         Row: {
           address: string | null
@@ -463,6 +484,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      cleanup_old_claim_attempts: { Args: never; Returns: undefined }
       create_operation_with_receivables: {
         Args: {
           p_client_id: string
