@@ -3,32 +3,33 @@ import { PageContainer } from "@/components/layout/PageContainer";
 import { ReceivablesFilters } from "@/components/receivables/ReceivablesFilters";
 import { ReceivablesSummaryCards } from "@/components/receivables/ReceivablesSummaryCards";
 import { ReceivablesTable } from "@/components/receivables/ReceivablesTable";
-import { MarkAsPaidDialog } from "@/components/receivables/MarkAsPaidDialog";
 import { EmptyReceivablesState } from "@/components/receivables/EmptyReceivablesState";
 import { useClients } from "@/hooks/useClients";
-import { useReceivables, useMarkAsPaid } from "@/hooks/useReceivables";
-import { DbReceivableWithRelations, ReceivableStatus, PaymentMethod } from "@/types/database";
+import { useReceivables } from "@/hooks/useReceivables";
+import { ReceivableStatus } from "@/types/database";
 import { Loader2 } from "lucide-react";
 import { isAfter, isBefore, startOfDay, parseISO } from "date-fns";
 
 export default function ContasAReceber() {
   const { data: clients = [], isLoading: loadingClients } = useClients();
   const { data: receivables = [], isLoading: loadingReceivables, error } = useReceivables();
-  const markAsPaid = useMarkAsPaid();
   
   const [selectedClientId, setSelectedClientId] = useState<string>("all");
   const [selectedStatus, setSelectedStatus] = useState<ReceivableStatus | "all">("all");
   const [startDate, setStartDate] = useState<Date | undefined>(undefined);
   const [endDate, setEndDate] = useState<Date | undefined>(undefined);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [selectedReceivable, setSelectedReceivable] = useState<DbReceivableWithRelations | null>(null);
 
   // Update overdue status automatically (in-memory, for display)
   const processedReceivables = useMemo(() => {
     const today = startOfDay(new Date());
     return receivables.map((rec) => {
       const dueDate = parseISO(rec.due_date);
+      // Se está em aberto e vencido, mostrar como atrasado
       if (rec.status === "EM_ABERTO" && isBefore(startOfDay(dueDate), today)) {
+        return { ...rec, status: "ATRASADO" as ReceivableStatus };
+      }
+      // Se tem pagamento parcial e está vencido, mostrar como atrasado também
+      if (rec.status === "PARCIAL" && isBefore(startOfDay(dueDate), today)) {
         return { ...rec, status: "ATRASADO" as ReceivableStatus };
       }
       return rec;
@@ -60,36 +61,19 @@ export default function ContasAReceber() {
     const openItems = filteredReceivables.filter((i) => i.status === "EM_ABERTO");
     const paidItems = filteredReceivables.filter((i) => i.status === "PAGO");
     const overdueItems = filteredReceivables.filter((i) => i.status === "ATRASADO");
+    const partialItems = filteredReceivables.filter((i) => i.status === "PARCIAL");
     
     return {
       totalOpen: openItems.reduce((sum, i) => sum + Number(i.amount), 0),
-      totalPaid: paidItems.reduce((sum, i) => sum + Number(i.amount), 0),
+      totalPaid: paidItems.reduce((sum, i) => sum + Number(i.amount_paid || i.amount), 0),
       totalOverdue: overdueItems.reduce((sum, i) => sum + Number(i.amount), 0),
+      totalPartial: partialItems.reduce((sum, i) => sum + Number(i.amount) - Number(i.amount_paid || 0), 0),
       countOpen: openItems.length,
       countPaid: paidItems.length,
       countOverdue: overdueItems.length,
+      countPartial: partialItems.length,
     };
   }, [filteredReceivables]);
-
-  const handleMarkAsPaid = (receivable: DbReceivableWithRelations) => {
-    setSelectedReceivable(receivable);
-    setDialogOpen(true);
-  };
-
-  const handleConfirmPayment = async (data: { paidAt: Date; paymentMethod: PaymentMethod; notes?: string }) => {
-    if (!selectedReceivable) return;
-
-    await markAsPaid.mutateAsync({
-      id: selectedReceivable.id,
-      paid_at: data.paidAt.toISOString(),
-      payment_method: data.paymentMethod,
-      notes: data.notes,
-      amount: Number(selectedReceivable.amount),
-    });
-
-    setDialogOpen(false);
-    setSelectedReceivable(null);
-  };
 
   const hasActiveFilters =
     selectedClientId !== "all" ||
@@ -129,7 +113,7 @@ export default function ContasAReceber() {
   return (
     <PageContainer
       title="Contas a Receber"
-      description="Acompanhe parcelas, duplicatas, vencimentos e registre pagamentos."
+      description="Acompanhe parcelas, vencimentos e registre pagamentos parciais ou totais."
     >
       <div className="space-y-6">
         <ReceivablesFilters
@@ -162,18 +146,9 @@ export default function ContasAReceber() {
           <ReceivablesTable
             receivables={filteredReceivables}
             clients={clients}
-            onMarkAsPaid={handleMarkAsPaid}
           />
         )}
       </div>
-
-      <MarkAsPaidDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        receivable={selectedReceivable}
-        onConfirm={handleConfirmPayment}
-        isLoading={markAsPaid.isPending}
-      />
     </PageContainer>
   );
 }

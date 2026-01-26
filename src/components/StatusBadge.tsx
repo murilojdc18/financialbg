@@ -1,8 +1,8 @@
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle, AlertTriangle, Clock } from "lucide-react";
+import { CheckCircle, AlertTriangle, Clock, CircleDot } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type StatusType = "EM_ABERTO" | "PAGO" | "ATRASADO";
+type StatusType = "EM_ABERTO" | "PAGO" | "ATRASADO" | "PARCIAL";
 
 interface StatusBadgeProps {
   status: string;
@@ -20,6 +20,7 @@ function normalizeStatus(status: string): StatusType {
 
   if (normalized === "PAGO") return "PAGO";
   if (normalized === "ATRASADO") return "ATRASADO";
+  if (normalized === "PARCIAL") return "PARCIAL";
   if (normalized === "EM_ABERTO" || normalized === "EMABERTO") return "EM_ABERTO";
   
   // Fallback
@@ -45,6 +46,11 @@ const statusStyles: Record<StatusType, {
     label: "Atrasado",
     className: "bg-destructive/10 text-destructive border-destructive/30 hover:bg-destructive/10",
     icon: <AlertTriangle className="h-3 w-3" />,
+  },
+  PARCIAL: {
+    label: "Parcial",
+    className: "bg-warning/10 text-warning border-warning/30 hover:bg-warning/10",
+    icon: <CircleDot className="h-3 w-3" />,
   },
 };
 

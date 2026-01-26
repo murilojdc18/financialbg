@@ -82,6 +82,7 @@ export function ReceivablesFilters({
           <SelectContent>
             <SelectItem value="all">Todos</SelectItem>
             <SelectItem value="EM_ABERTO">Em aberto</SelectItem>
+            <SelectItem value="PARCIAL">Parcial</SelectItem>
             <SelectItem value="PAGO">Pago</SelectItem>
             <SelectItem value="ATRASADO">Atrasado</SelectItem>
           </SelectContent>
