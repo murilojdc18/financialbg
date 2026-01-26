@@ -1,7 +1,7 @@
 // Enums do banco de dados
 export type OperationSystem = 'PRICE' | 'SAC';
 export type OperationStatus = 'ATIVA' | 'QUITADA' | 'CANCELADA';
-export type ReceivableStatus = 'EM_ABERTO' | 'PAGO' | 'ATRASADO';
+export type ReceivableStatus = 'EM_ABERTO' | 'PAGO' | 'ATRASADO' | 'PARCIAL';
 export type PaymentMethod = 'PIX' | 'BOLETO' | 'TRANSFERENCIA' | 'DINHEIRO' | 'CARTAO' | 'OUTRO';
 
 // Tipos das tabelas
@@ -34,7 +34,9 @@ export interface DbOperation {
   // Campos de cobrança com atraso
   late_grace_days: number;
   late_penalty_percent: number;
+  /** @deprecated Use late_interest_daily_percent */
   late_interest_monthly_percent: number;
+  late_interest_daily_percent: number;
   created_at: string;
   updated_at: string;
 }
@@ -47,11 +49,18 @@ export interface DbReceivable {
   installment_number: number;
   due_date: string;
   amount: number;
-  amount_paid: number | null;
+  amount_paid: number;
   status: ReceivableStatus;
   paid_at: string | null;
   payment_method: PaymentMethod | null;
   notes: string | null;
+  // Campos de multa/mora
+  penalty_applied: boolean;
+  penalty_amount: number;
+  interest_accrued: number;
+  last_interest_calc_at: string | null;
+  // Renegociação
+  renegotiated_to_receivable_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -60,10 +69,13 @@ export interface DbPayment {
   id: string;
   owner_id: string;
   receivable_id: string;
+  client_id: string | null;
+  operation_id: string | null;
   amount: number;
   paid_at: string;
   method: PaymentMethod;
   notes: string | null;
+  note: string | null;
   created_at: string;
 }
 

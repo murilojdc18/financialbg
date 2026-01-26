@@ -309,7 +309,8 @@ export default function OperacaoDetalhes() {
           operationId={operation.id} 
           lateFeeConfig={{
             lateGraceDays: operation.late_grace_days ?? 0,
-            latePenaltyPercent: Number(operation.late_penalty_percent) ?? 2,
+            latePenaltyPercent: Number(operation.late_penalty_percent) ?? 10,
+            lateInterestDailyPercent: Number(operation.late_interest_daily_percent) ?? 0.5,
             lateInterestMonthlyPercent: Number(operation.late_interest_monthly_percent) ?? 1,
           }}
         />

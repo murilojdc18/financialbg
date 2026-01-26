@@ -15,15 +15,16 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Loader2, Receipt, AlertCircle, Info, CheckCircle } from "lucide-react";
+import { Loader2, Receipt, AlertCircle, Info, CheckCircle, History } from "lucide-react";
 import { format, parseISO, isBefore, startOfDay } from "date-fns";
 import { formatCurrency } from "@/lib/loan-calculator";
-import { calculateLateFees, LateFeeConfig, LateFeeResult } from "@/lib/late-fee-calculator";
-import { useReceivablesByOperation, useMarkAsPaid } from "@/hooks/useReceivables";
-import { DbReceivable, ReceivableStatus, PaymentMethod } from "@/types/database";
-import { MarkReceivablePaidDialog } from "./MarkReceivablePaidDialog";
+import { calculateDetailedLateFees, LateFeeConfig, DetailedLateFeeResult } from "@/lib/late-fee-calculator";
+import { useReceivablesByOperation } from "@/hooks/useReceivables";
+import { ReceivableForPayment } from "@/hooks/useFlexiblePayment";
+import { DbReceivable, ReceivableStatus } from "@/types/database";
+import { FlexiblePaymentDialog } from "@/components/receivables/FlexiblePaymentDialog";
+import { PaymentsHistoryDrawer } from "@/components/receivables/PaymentsHistoryDrawer";
 import { useQueryClient } from "@tanstack/react-query";
-import { useToast } from "@/hooks/use-toast";
 import { StatusBadge } from "@/components/StatusBadge";
 
 interface ReceivablesSectionProps {
@@ -31,90 +32,81 @@ interface ReceivablesSectionProps {
   lateFeeConfig: LateFeeConfig;
 }
 
-const paymentMethodLabels: Record<PaymentMethod, string> = {
-  PIX: "PIX",
-  BOLETO: "Boleto",
-  TRANSFERENCIA: "Transferência",
-  DINHEIRO: "Dinheiro",
-  CARTAO: "Cartão",
-  OUTRO: "Outro",
-};
-
 function getDisplayStatus(receivable: DbReceivable): ReceivableStatus {
-  if (receivable.status === "PAGO") {
-    return "PAGO";
-  }
+  if (receivable.status === "PAGO") return "PAGO";
+  if (receivable.status === "PARCIAL") return "PARCIAL";
   
   const today = startOfDay(new Date());
   const dueDate = startOfDay(parseISO(receivable.due_date));
   
-  if (isBefore(dueDate, today)) {
-    return "ATRASADO";
-  }
-  
+  if (isBefore(dueDate, today)) return "ATRASADO";
   return "EM_ABERTO";
-}
-
-interface SelectedReceivable {
-  id: string;
-  installmentNumber: number;
-  originalAmount: number;
-  lateFeeResult: LateFeeResult;
 }
 
 export function ReceivablesSection({ operationId, lateFeeConfig }: ReceivablesSectionProps) {
   const { data: receivables, isLoading, error } = useReceivablesByOperation(operationId);
-  const markAsPaid = useMarkAsPaid();
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [selectedReceivable, setSelectedReceivable] = useState<SelectedReceivable | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [selectedReceivable, setSelectedReceivable] = useState<ReceivableForPayment | null>(null);
+  const [selectedForHistory, setSelectedForHistory] = useState<{ id: string; number: number } | null>(null);
 
-  const handleMarkAsPaid = (
-    receivable: DbReceivable,
-    lateFeeResult: LateFeeResult
-  ) => {
-    setSelectedReceivable({
+  const handleMarkAsPaid = (receivable: DbReceivable) => {
+    // Converter para ReceivableForPayment
+    const forPayment: ReceivableForPayment = {
       id: receivable.id,
-      installmentNumber: receivable.installment_number,
-      originalAmount: receivable.amount,
-      lateFeeResult,
-    });
+      operation_id: receivable.operation_id,
+      client_id: receivable.client_id,
+      installment_number: receivable.installment_number,
+      due_date: receivable.due_date,
+      amount: receivable.amount,
+      amount_paid: receivable.amount_paid ?? 0,
+      status: receivable.status,
+      penalty_applied: receivable.penalty_applied ?? false,
+      penalty_amount: receivable.penalty_amount ?? 0,
+      interest_accrued: receivable.interest_accrued ?? 0,
+      last_interest_calc_at: receivable.last_interest_calc_at ?? null,
+      notes: receivable.notes ?? null,
+      operations: {
+        late_grace_days: lateFeeConfig.lateGraceDays,
+        late_penalty_percent: lateFeeConfig.latePenaltyPercent,
+        late_interest_monthly_percent: lateFeeConfig.lateInterestMonthlyPercent ?? 1,
+        late_interest_daily_percent: lateFeeConfig.lateInterestDailyPercent ?? 0.5,
+      },
+    };
+    setSelectedReceivable(forPayment);
     setDialogOpen(true);
   };
 
-  const handleConfirmPayment = async (data: {
-    paidAt: Date;
-    paymentMethod: PaymentMethod;
-    amountPaid: number;
-  }) => {
-    if (!selectedReceivable) return;
+  const handleViewHistory = (receivable: DbReceivable) => {
+    setSelectedForHistory({ id: receivable.id, number: receivable.installment_number });
+    setHistoryOpen(true);
+  };
 
-    try {
-      await markAsPaid.mutateAsync({
-        id: selectedReceivable.id,
-        paid_at: data.paidAt.toISOString(),
-        payment_method: data.paymentMethod,
-        amount: data.amountPaid,
-      });
-      
-      // Invalidate queries to refresh the list
-      queryClient.invalidateQueries({ queryKey: ["receivables", "operation", operationId] });
-      queryClient.invalidateQueries({ queryKey: ["payments"] });
-      
-      toast({
-        title: "Pagamento registrado!",
-        description: `Parcela ${selectedReceivable.installmentNumber} marcada como paga.`,
-      });
-    } catch (error) {
-      toast({
-        variant: "destructive",
-        title: "Erro ao registrar pagamento",
-        description: error instanceof Error ? error.message : "Tente novamente.",
-      });
-      throw error;
-    }
+  const handlePaymentSuccess = () => {
+    queryClient.invalidateQueries({ queryKey: ["receivables", "operation", operationId] });
+    queryClient.invalidateQueries({ queryKey: ["payments"] });
+    setDialogOpen(false);
+    setSelectedReceivable(null);
+  };
+
+  // Função para calcular encargos detalhados
+  const calculateFees = (receivable: DbReceivable): DetailedLateFeeResult | null => {
+    if (receivable.status === "PAGO") return null;
+
+    return calculateDetailedLateFees(
+      {
+        amount: receivable.amount,
+        amountPaid: receivable.amount_paid ?? 0,
+        penaltyApplied: receivable.penalty_applied ?? false,
+        penaltyAmount: receivable.penalty_amount ?? 0,
+        interestAccrued: receivable.interest_accrued ?? 0,
+        lastInterestCalcAt: receivable.last_interest_calc_at ?? null,
+        dueDate: receivable.due_date,
+      },
+      lateFeeConfig
+    );
   };
 
   return (
@@ -127,12 +119,10 @@ export function ReceivablesSection({ operationId, lateFeeConfig }: ReceivablesSe
           </div>
           <CardDescription>
             Parcelas registradas para esta operação
-            {lateFeeConfig.latePenaltyPercent > 0 && (
-              <span className="ml-2 text-xs">
-                (Multa: {lateFeeConfig.latePenaltyPercent}% | Juros: {lateFeeConfig.lateInterestMonthlyPercent}% a.m.
-                {lateFeeConfig.lateGraceDays > 0 && ` | Carência: ${lateFeeConfig.lateGraceDays} dias`})
-              </span>
-            )}
+            <span className="ml-2 text-xs">
+              (Multa: {lateFeeConfig.latePenaltyPercent}% | Mora: {lateFeeConfig.lateInterestDailyPercent ?? 0.5}% ao dia
+              {lateFeeConfig.lateGraceDays > 0 && ` | Carência: ${lateFeeConfig.lateGraceDays} dias`})
+            </span>
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -155,30 +145,39 @@ export function ReceivablesSection({ operationId, lateFeeConfig }: ReceivablesSe
               </p>
             </div>
           ) : (
-            <div className="rounded-md border">
+            <div className="rounded-md border overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-16">Nº</TableHead>
+                    <TableHead className="w-12">Nº</TableHead>
                     <TableHead>Vencimento</TableHead>
-                    <TableHead className="text-right">Valor Original</TableHead>
-                    <TableHead className="text-center w-24">Dias Atraso</TableHead>
-                    <TableHead className="text-right">Valor Atualizado</TableHead>
+                    <TableHead className="text-right">Original</TableHead>
+                    <TableHead className="text-right">Multa</TableHead>
+                    <TableHead className="text-right">Juros</TableHead>
+                    <TableHead className="text-right">Total Devido</TableHead>
+                    <TableHead className="text-right">Pago</TableHead>
+                    <TableHead className="text-right">Saldo</TableHead>
                     <TableHead className="text-center">Status</TableHead>
-                    <TableHead>Pago em</TableHead>
-                    <TableHead>Método</TableHead>
-                    <TableHead className="text-right w-32">Ações</TableHead>
+                    <TableHead className="text-right w-28">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {receivables.map((receivable) => {
                     const displayStatus = getDisplayStatus(receivable);
                     const isPaid = receivable.status === "PAGO";
+                    const feeResult = calculateFees(receivable);
                     
-                    // Calcula multa/juros apenas para parcelas não pagas
-                    const lateFeeResult = !isPaid
-                      ? calculateLateFees(receivable.due_date, receivable.amount, lateFeeConfig)
-                      : null;
+                    const penaltyAmount = receivable.penalty_amount ?? 0;
+                    const interestAmount = receivable.interest_accrued ?? 0;
+                    const amountPaid = receivable.amount_paid ?? 0;
+                    
+                    // Total devido = original + multa + juros
+                    const totalDue = isPaid 
+                      ? amountPaid 
+                      : (feeResult?.breakdown.total ?? receivable.amount);
+                    
+                    // Saldo = total devido - pago
+                    const balance = isPaid ? 0 : (feeResult?.breakdown.total ?? receivable.amount);
 
                     return (
                       <TableRow key={receivable.id}>
@@ -188,79 +187,103 @@ export function ReceivablesSection({ operationId, lateFeeConfig }: ReceivablesSe
                         <TableCell>
                           {format(parseISO(receivable.due_date), "dd/MM/yyyy")}
                         </TableCell>
-                        <TableCell className="text-right font-medium">
+                        <TableCell className="text-right">
                           {formatCurrency(receivable.amount)}
                         </TableCell>
-                        <TableCell className="text-center">
-                          {isPaid ? (
-                            <span className="text-muted-foreground">—</span>
-                          ) : lateFeeResult && lateFeeResult.daysOverdue > 0 ? (
-                            <span className="text-destructive font-medium">
-                              {lateFeeResult.daysOverdue}
+                        <TableCell className="text-right">
+                          {penaltyAmount > 0 || (feeResult?.breakdown.penalty ?? 0) > 0 ? (
+                            <span className="text-destructive">
+                              {formatCurrency(feeResult?.breakdown.penalty ?? penaltyAmount)}
                             </span>
                           ) : (
-                            <span className="text-muted-foreground">0</span>
+                            <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
                         <TableCell className="text-right">
-                          {isPaid ? (
-                            <span className="text-muted-foreground">
-                              {receivable.amount_paid 
-                                ? formatCurrency(receivable.amount_paid)
-                                : "—"}
-                            </span>
-                          ) : lateFeeResult && lateFeeResult.hasLateFees ? (
-                            <div className="flex items-center justify-end gap-1">
-                              <span className="font-semibold text-destructive">
-                                {formatCurrency(lateFeeResult.updatedAmount)}
-                              </span>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Info className="h-4 w-4 text-muted-foreground cursor-help" />
-                                </TooltipTrigger>
-                                <TooltipContent side="left" className="max-w-xs">
-                                  <div className="space-y-1 text-sm">
-                                    <p><strong>Detalhamento:</strong></p>
-                                    <p>Valor original: {formatCurrency(lateFeeResult.originalAmount)}</p>
-                                    <p>Multa ({lateFeeConfig.latePenaltyPercent}%): {formatCurrency(lateFeeResult.penalty)}</p>
-                                    <p>Juros ({lateFeeResult.daysOverdue} dias): {formatCurrency(lateFeeResult.interest)}</p>
-                                    <p className="font-semibold pt-1 border-t">
-                                      Total: {formatCurrency(lateFeeResult.updatedAmount)}
-                                    </p>
-                                  </div>
-                                </TooltipContent>
-                              </Tooltip>
-                            </div>
+                          {interestAmount > 0 || (feeResult?.breakdown.interest ?? 0) > 0 ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="text-destructive cursor-help">
+                                  {formatCurrency(feeResult?.breakdown.interest ?? interestAmount)}
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {feeResult?.daysOverdue ?? 0} dias em atraso
+                              </TooltipContent>
+                            </Tooltip>
                           ) : (
-                            <span className="font-medium">
-                              {formatCurrency(receivable.amount)}
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          {feeResult?.hasLateFees ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="text-destructive cursor-help flex items-center justify-end gap-1">
+                                  {formatCurrency(totalDue)}
+                                  <Info className="h-3 w-3" />
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="left" className="max-w-xs">
+                                <div className="space-y-1 text-sm">
+                                  <p>Principal: {formatCurrency(feeResult.breakdown.principal)}</p>
+                                  <p>Multa: {formatCurrency(feeResult.breakdown.penalty)}</p>
+                                  <p>Juros ({feeResult.daysOverdue}d): {formatCurrency(feeResult.breakdown.interest)}</p>
+                                </div>
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            formatCurrency(totalDue)
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {amountPaid > 0 ? (
+                            <span className="text-primary">{formatCurrency(amountPaid)}</span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right font-semibold">
+                          {isPaid ? (
+                            <span className="text-muted-foreground">—</span>
+                          ) : (
+                            <span className={balance > 0 ? "text-warning" : "text-primary"}>
+                              {formatCurrency(balance)}
                             </span>
                           )}
                         </TableCell>
                         <TableCell className="text-center">
                           <StatusBadge status={displayStatus} />
                         </TableCell>
-                        <TableCell>
-                          {receivable.paid_at
-                            ? format(parseISO(receivable.paid_at), "dd/MM/yyyy")
-                            : "—"}
-                        </TableCell>
-                        <TableCell>
-                          {receivable.payment_method
-                            ? paymentMethodLabels[receivable.payment_method]
-                            : "—"}
-                        </TableCell>
                         <TableCell className="text-right">
-                          {!isPaid && lateFeeResult && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleMarkAsPaid(receivable, lateFeeResult)}
-                            >
-                              <CheckCircle className="h-4 w-4 mr-1" />
-                              Pagar
-                            </Button>
-                          )}
+                          <div className="flex justify-end gap-1">
+                            {amountPaid > 0 && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    onClick={() => handleViewHistory(receivable)}
+                                  >
+                                    <History className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Ver pagamentos</TooltipContent>
+                              </Tooltip>
+                            )}
+                            {!isPaid && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleMarkAsPaid(receivable)}
+                                className="gap-1"
+                              >
+                                <CheckCircle className="h-4 w-4" />
+                                Pagar
+                              </Button>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     );
@@ -272,18 +295,21 @@ export function ReceivablesSection({ operationId, lateFeeConfig }: ReceivablesSe
         </CardContent>
       </Card>
 
-      {/* Dialog para marcar como pago */}
-      {selectedReceivable && (
-        <MarkReceivablePaidDialog
-          open={dialogOpen}
-          onOpenChange={setDialogOpen}
-          installmentNumber={selectedReceivable.installmentNumber}
-          originalAmount={selectedReceivable.originalAmount}
-          updatedAmount={selectedReceivable.lateFeeResult.updatedAmount}
-          hasLateFees={selectedReceivable.lateFeeResult.hasLateFees}
-          onConfirm={handleConfirmPayment}
-        />
-      )}
+      {/* Dialog de pagamento flexível */}
+      <FlexiblePaymentDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        receivable={selectedReceivable}
+        onSuccess={handlePaymentSuccess}
+      />
+
+      {/* Drawer de histórico de pagamentos */}
+      <PaymentsHistoryDrawer
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        receivableId={selectedForHistory?.id ?? null}
+        installmentNumber={selectedForHistory?.number}
+      />
     </TooltipProvider>
   );
 }

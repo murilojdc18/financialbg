@@ -10,7 +10,17 @@ export function useReceivables() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('receivables')
-        .select('*, clients(*), operations(*)')
+        .select(`
+          *, 
+          clients(*), 
+          operations(
+            *,
+            late_grace_days,
+            late_penalty_percent,
+            late_interest_monthly_percent,
+            late_interest_daily_percent
+          )
+        `)
         .order('due_date');
       
       if (error) throw error;
