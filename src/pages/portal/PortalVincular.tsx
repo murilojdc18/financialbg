@@ -3,14 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Loader2, Link2, AlertCircle, ShieldCheck } from 'lucide-react';
+import { Loader2, Link2, AlertCircle, ShieldCheck, ArrowLeft, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useClaimClient } from '@/hooks/useClaimClient';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 
 // Validação do formulário
 const vinculacaoSchema = z.object({
@@ -40,6 +41,7 @@ function formatCPF(value: string): string {
 export default function PortalVincular() {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { signOut } = useAuth();
   const { claimClient, isLoading, reset } = useClaimClient();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -74,6 +76,21 @@ export default function PortalVincular() {
         : 'Não foi possível processar a solicitação. Tente novamente.';
       setErrorMessage(message);
     }
+  };
+
+  const handleGoBack = () => {
+    // Verifica se existe histórico de navegação
+    if (window.history.length > 1) {
+      navigate(-1);
+    } else {
+      // Fallback para login do portal
+      navigate('/portal/login');
+    }
+  };
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/portal/login', { replace: true });
   };
 
   return (
@@ -158,6 +175,16 @@ export default function PortalVincular() {
             </form>
           </Form>
         </CardContent>
+        <CardFooter className="flex justify-between border-t pt-4">
+          <Button variant="ghost" size="sm" onClick={handleGoBack}>
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Voltar
+          </Button>
+          <Button variant="ghost" size="sm" onClick={handleSignOut} className="text-destructive hover:text-destructive">
+            <LogOut className="mr-2 h-4 w-4" />
+            Sair
+          </Button>
+        </CardFooter>
       </Card>
     </div>
   );
