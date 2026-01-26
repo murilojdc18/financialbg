@@ -45,7 +45,7 @@ export interface ReceivableForPayment {
 }
 
 /**
- * Hook para buscar pagamentos de uma receivable
+ * Hook para buscar pagamentos válidos (não anulados) de uma receivable
  */
 export function usePaymentsByReceivable(receivableId: string) {
   return useQuery({
@@ -55,6 +55,7 @@ export function usePaymentsByReceivable(receivableId: string) {
         .from('payments')
         .select('*')
         .eq('receivable_id', receivableId)
+        .eq('is_voided', false)
         .order('paid_at', { ascending: false });
 
       if (error) throw error;
