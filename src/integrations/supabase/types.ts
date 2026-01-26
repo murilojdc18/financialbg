@@ -178,6 +178,7 @@ export type Database = {
           client_id: string | null
           created_at: string | null
           id: string
+          is_voided: boolean | null
           method: Database["public"]["Enums"]["payment_method"]
           note: string | null
           notes: string | null
@@ -185,12 +186,17 @@ export type Database = {
           owner_id: string
           paid_at: string
           receivable_id: string
+          updated_at: string | null
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
         }
         Insert: {
           amount: number
           client_id?: string | null
           created_at?: string | null
           id?: string
+          is_voided?: boolean | null
           method: Database["public"]["Enums"]["payment_method"]
           note?: string | null
           notes?: string | null
@@ -198,12 +204,17 @@ export type Database = {
           owner_id?: string
           paid_at?: string
           receivable_id: string
+          updated_at?: string | null
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
         }
         Update: {
           amount?: number
           client_id?: string | null
           created_at?: string | null
           id?: string
+          is_voided?: boolean | null
           method?: Database["public"]["Enums"]["payment_method"]
           note?: string | null
           notes?: string | null
@@ -211,6 +222,10 @@ export type Database = {
           owner_id?: string
           paid_at?: string
           receivable_id?: string
+          updated_at?: string | null
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
         }
         Relationships: [
           {
