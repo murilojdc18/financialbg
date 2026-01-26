@@ -109,6 +109,7 @@ export type Database = {
           fee_insurance: number | null
           id: string
           late_grace_days: number | null
+          late_interest_daily_percent: number | null
           late_interest_monthly_percent: number | null
           late_penalty_percent: number | null
           notes: string | null
@@ -128,6 +129,7 @@ export type Database = {
           fee_insurance?: number | null
           id?: string
           late_grace_days?: number | null
+          late_interest_daily_percent?: number | null
           late_interest_monthly_percent?: number | null
           late_penalty_percent?: number | null
           notes?: string | null
@@ -147,6 +149,7 @@ export type Database = {
           fee_insurance?: number | null
           id?: string
           late_grace_days?: number | null
+          late_interest_daily_percent?: number | null
           late_interest_monthly_percent?: number | null
           late_penalty_percent?: number | null
           notes?: string | null
@@ -404,11 +407,15 @@ export type Database = {
           due_date: string
           id: string
           installment_number: number
+          interest_accrued: number | null
+          last_interest_calc_at: string | null
           notes: string | null
           operation_id: string
           owner_id: string
           paid_at: string | null
           payment_method: Database["public"]["Enums"]["payment_method"] | null
+          penalty_amount: number | null
+          penalty_applied: boolean | null
           status: Database["public"]["Enums"]["receivable_status"]
           updated_at: string | null
         }
@@ -420,11 +427,15 @@ export type Database = {
           due_date: string
           id?: string
           installment_number: number
+          interest_accrued?: number | null
+          last_interest_calc_at?: string | null
           notes?: string | null
           operation_id: string
           owner_id?: string
           paid_at?: string | null
           payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          penalty_amount?: number | null
+          penalty_applied?: boolean | null
           status?: Database["public"]["Enums"]["receivable_status"]
           updated_at?: string | null
         }
@@ -436,11 +447,15 @@ export type Database = {
           due_date?: string
           id?: string
           installment_number?: number
+          interest_accrued?: number | null
+          last_interest_calc_at?: string | null
           notes?: string | null
           operation_id?: string
           owner_id?: string
           paid_at?: string | null
           payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          penalty_amount?: number | null
+          penalty_applied?: boolean | null
           status?: Database["public"]["Enums"]["receivable_status"]
           updated_at?: string | null
         }
@@ -535,7 +550,7 @@ export type Database = {
         | "DINHEIRO"
         | "CARTAO"
         | "OUTRO"
-      receivable_status: "EM_ABERTO" | "PAGO" | "ATRASADO"
+      receivable_status: "EM_ABERTO" | "PAGO" | "ATRASADO" | "PARCIAL"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -674,7 +689,7 @@ export const Constants = {
         "CARTAO",
         "OUTRO",
       ],
-      receivable_status: ["EM_ABERTO", "PAGO", "ATRASADO"],
+      receivable_status: ["EM_ABERTO", "PAGO", "ATRASADO", "PARCIAL"],
     },
   },
 } as const
