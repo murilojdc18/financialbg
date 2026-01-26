@@ -77,6 +77,12 @@ export interface DbPayment {
   notes: string | null;
   note: string | null;
   created_at: string;
+  // Campos de correção (soft-void)
+  is_voided: boolean;
+  void_reason: string | null;
+  voided_at: string | null;
+  voided_by: string | null;
+  updated_at: string | null;
 }
 
 // Tipos para inserção (sem campos auto-gerados)
