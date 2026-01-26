@@ -175,35 +175,58 @@ export type Database = {
       payments: {
         Row: {
           amount: number
+          client_id: string | null
           created_at: string | null
           id: string
           method: Database["public"]["Enums"]["payment_method"]
+          note: string | null
           notes: string | null
+          operation_id: string | null
           owner_id: string
           paid_at: string
           receivable_id: string
         }
         Insert: {
           amount: number
+          client_id?: string | null
           created_at?: string | null
           id?: string
           method: Database["public"]["Enums"]["payment_method"]
+          note?: string | null
           notes?: string | null
+          operation_id?: string | null
           owner_id?: string
           paid_at?: string
           receivable_id: string
         }
         Update: {
           amount?: number
+          client_id?: string | null
           created_at?: string | null
           id?: string
           method?: Database["public"]["Enums"]["payment_method"]
+          note?: string | null
           notes?: string | null
+          operation_id?: string | null
           owner_id?: string
           paid_at?: string
           receivable_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "payments_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payments_operation_id_fkey"
+            columns: ["operation_id"]
+            isOneToOne: false
+            referencedRelation: "operations"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "payments_receivable_id_fkey"
             columns: ["receivable_id"]
