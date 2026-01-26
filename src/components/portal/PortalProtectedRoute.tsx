@@ -10,6 +10,20 @@ interface PortalProtectedRouteProps {
   allowUnlinked?: boolean;
 }
 
+// Rotas do portal que NÃO exigem vínculo (client_id)
+const ROUTES_WITHOUT_LINK_REQUIREMENT = [
+  '/portal/login',
+  '/portal/signup',
+  '/portal/vincular',
+];
+
+// Verifica se a rota atual exige vínculo
+function routeRequiresLink(pathname: string): boolean {
+  return !ROUTES_WITHOUT_LINK_REQUIREMENT.some(route => 
+    pathname === route || pathname.startsWith(route + '/')
+  );
+}
+
 export function PortalProtectedRoute({ children, allowUnlinked = false }: PortalProtectedRouteProps) {
   const { user, loading: authLoading, signOut } = useAuth();
   const { isAdmin, isClient, isLoading: roleLoading, error: roleError, role } = useUserRole();
@@ -55,12 +69,21 @@ export function PortalProtectedRoute({ children, allowUnlinked = false }: Portal
     return <Navigate to="/operacoes" replace />;
   }
 
-  // CLIENT without client_id -> redirect to vincular (unless allowUnlinked)
-  if (isClient && !clientId && !allowUnlinked) {
-    return <Navigate to="/portal/vincular" replace />;
+  // CLIENT without client_id
+  // Só redireciona se a rota EXIGIR vínculo e não tem allowUnlinked
+  if (isClient && !clientId) {
+    const currentRouteRequiresLink = routeRequiresLink(location.pathname);
+    
+    // Se a rota exige vínculo e não está permitido sem vínculo, redireciona
+    if (currentRouteRequiresLink && !allowUnlinked) {
+      return <Navigate to="/portal/vincular" replace />;
+    }
+    
+    // Se está em rota que não exige vínculo OU tem allowUnlinked, permite acesso
+    return <>{children}</>;
   }
 
-  // CLIENT -> allow access
+  // CLIENT com client_id -> allow access
   if (isClient) {
     return <>{children}</>;
   }
