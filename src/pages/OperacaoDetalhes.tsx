@@ -19,6 +19,7 @@ import {
   CreditCard,
   Shield,
   Loader2,
+  Wallet,
 } from "lucide-react";
 import { useOperation } from "@/hooks/useOperations";
 import { formatCurrency, formatPercent, calculateLoan } from "@/lib/loan-calculator";
@@ -233,18 +234,28 @@ export default function OperacaoDetalhes() {
 
               <Separator />
 
-              <div className="flex items-start gap-3">
-                <Shield className="h-4 w-4 text-muted-foreground mt-0.5" />
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Taxas Adicionais</p>
-                  {(Number(operation.fee_fixed) > 0 || Number(operation.fee_insurance) > 0) ? (
-                    <div className="text-sm">
-                      {Number(operation.fee_fixed) > 0 && <p>Taxa fixa: {formatCurrency(Number(operation.fee_fixed))}</p>}
-                      {Number(operation.fee_insurance) > 0 && <p>Seguro: {formatCurrency(Number(operation.fee_insurance))}</p>}
-                    </div>
-                  ) : (
-                    <p className="font-medium text-muted-foreground">Nenhuma taxa adicional</p>
-                  )}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex items-start gap-3">
+                  <Wallet className="h-4 w-4 text-muted-foreground mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Caixa</p>
+                    <p className="font-semibold">{operation.cash_source || "B&G"}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <Shield className="h-4 w-4 text-muted-foreground mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Taxas Adicionais</p>
+                    {(Number(operation.fee_fixed) > 0 || Number(operation.fee_insurance) > 0) ? (
+                      <div className="text-sm">
+                        {Number(operation.fee_fixed) > 0 && <p>Taxa fixa: {formatCurrency(Number(operation.fee_fixed))}</p>}
+                        {Number(operation.fee_insurance) > 0 && <p>Seguro: {formatCurrency(Number(operation.fee_insurance))}</p>}
+                      </div>
+                    ) : (
+                      <p className="font-medium text-muted-foreground">Nenhuma taxa adicional</p>
+                    )}
+                  </div>
                 </div>
               </div>
             </CardContent>

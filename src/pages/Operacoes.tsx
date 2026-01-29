@@ -5,6 +5,7 @@ import { OperationsTable } from "@/components/operations/OperationsTable";
 import { EmptyOperationsState } from "@/components/operations/EmptyOperationsState";
 import { useClients } from "@/hooks/useClients";
 import { useOperations } from "@/hooks/useOperations";
+import { CashSource } from "@/types/database";
 import { Loader2 } from "lucide-react";
 import { parseISO } from "date-fns";
 
@@ -15,6 +16,7 @@ export default function Operacoes() {
   // Filters state
   const [selectedClientId, setSelectedClientId] = useState<string>("all");
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
+  const [selectedCashSource, setSelectedCashSource] = useState<CashSource | "all">("all");
   const [startDate, setStartDate] = useState<Date | undefined>(undefined);
   const [endDate, setEndDate] = useState<Date | undefined>(undefined);
 
@@ -27,6 +29,11 @@ export default function Operacoes() {
 
       // Filter by status
       if (selectedStatus !== "all" && operation.status !== selectedStatus) {
+        return false;
+      }
+
+      // Filter by cash source
+      if (selectedCashSource !== "all" && operation.cash_source !== selectedCashSource) {
         return false;
       }
 
@@ -46,11 +53,12 @@ export default function Operacoes() {
 
       return true;
     });
-  }, [operations, selectedClientId, selectedStatus, startDate, endDate]);
+  }, [operations, selectedClientId, selectedStatus, selectedCashSource, startDate, endDate]);
 
   const handleClearFilters = () => {
     setSelectedClientId("all");
     setSelectedStatus("all");
+    setSelectedCashSource("all");
     setStartDate(undefined);
     setEndDate(undefined);
   };
@@ -58,6 +66,7 @@ export default function Operacoes() {
   const hasActiveFilters =
     selectedClientId !== "all" ||
     selectedStatus !== "all" ||
+    selectedCashSource !== "all" ||
     startDate !== undefined ||
     endDate !== undefined;
 
@@ -96,6 +105,8 @@ export default function Operacoes() {
           onClientChange={setSelectedClientId}
           selectedStatus={selectedStatus}
           onStatusChange={setSelectedStatus}
+          selectedCashSource={selectedCashSource}
+          onCashSourceChange={setSelectedCashSource}
           startDate={startDate}
           endDate={endDate}
           onStartDateChange={setStartDate}

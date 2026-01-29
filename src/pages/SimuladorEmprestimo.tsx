@@ -24,6 +24,7 @@ export default function SimuladorEmprestimo() {
   const [result, setResult] = useState<LoanResult | null>(null);
   const [loanInput, setLoanInput] = useState<LoanInput | null>(null);
   const [selectedClientId, setSelectedClientId] = useState<string>("");
+  const [selectedCashSource, setSelectedCashSource] = useState<"B&G" | "PESSOAL">("B&G");
   
   const { data: clients = [], isLoading: loadingClients } = useClients();
   const createOperation = useCreateOperationWithReceivables();
@@ -33,6 +34,7 @@ export default function SimuladorEmprestimo() {
     setResult(loanResult);
     setLoanInput(input);
     setSelectedClientId("");
+    setSelectedCashSource("B&G");
   };
 
   const handleCreateOperation = async () => {
@@ -58,6 +60,7 @@ export default function SimuladorEmprestimo() {
       start_date: format(startDate, "yyyy-MM-dd"),
       fee_fixed: loanInput.fixedFee || 0,
       fee_insurance: loanInput.insuranceFee || 0,
+      cash_source: selectedCashSource,
       receivables,
     });
 
@@ -118,6 +121,20 @@ export default function SimuladorEmprestimo() {
                               </SelectItem>
                             ))
                           )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="w-full sm:w-[140px]">
+                      <Select 
+                        value={selectedCashSource} 
+                        onValueChange={(v) => setSelectedCashSource(v as "B&G" | "PESSOAL")}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Caixa" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="B&G">B&G</SelectItem>
+                          <SelectItem value="PESSOAL">Pessoal</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>

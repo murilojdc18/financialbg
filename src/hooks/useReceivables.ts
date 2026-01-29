@@ -15,6 +15,7 @@ export function useReceivables() {
           clients(*), 
           operations(
             *,
+            cash_source,
             late_grace_days,
             late_penalty_percent,
             late_interest_monthly_percent,

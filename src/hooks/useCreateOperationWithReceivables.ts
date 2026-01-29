@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { OperationSystem } from '@/types/database';
+import { OperationSystem, CashSource } from '@/types/database';
 import { useToast } from '@/hooks/use-toast';
 
 interface ReceivableInput {
@@ -19,6 +19,7 @@ interface CreateOperationInput {
   fee_fixed?: number;
   fee_insurance?: number;
   notes?: string;
+  cash_source?: CashSource;
   receivables: ReceivableInput[];
 }
 
@@ -28,21 +29,44 @@ export function useCreateOperationWithReceivables() {
 
   return useMutation({
     mutationFn: async (input: CreateOperationInput) => {
-      const { data, error } = await supabase.rpc('create_operation_with_receivables', {
-        p_client_id: input.client_id,
-        p_principal: input.principal,
-        p_rate_monthly: input.rate_monthly,
-        p_term_months: input.term_months,
-        p_system: input.system,
-        p_start_date: input.start_date,
-        p_fee_fixed: input.fee_fixed || 0,
-        p_fee_insurance: input.fee_insurance || 0,
-        p_notes: input.notes || null,
-        p_receivables: JSON.parse(JSON.stringify(input.receivables)),
-      });
+      // Criar operation diretamente com cash_source
+      const { data: operation, error: opError } = await supabase
+        .from('operations')
+        .insert({
+          client_id: input.client_id,
+          principal: input.principal,
+          rate_monthly: input.rate_monthly,
+          term_months: input.term_months,
+          system: input.system,
+          start_date: input.start_date,
+          fee_fixed: input.fee_fixed || 0,
+          fee_insurance: input.fee_insurance || 0,
+          notes: input.notes || null,
+          cash_source: input.cash_source || 'B&G',
+        })
+        .select()
+        .single();
 
-      if (error) throw error;
-      return data as string; // operation_id
+      if (opError) throw opError;
+
+      // Criar receivables
+      if (input.receivables.length > 0) {
+        const receivablesData = input.receivables.map((r) => ({
+          operation_id: operation.id,
+          client_id: input.client_id,
+          installment_number: r.installment_number,
+          due_date: r.due_date,
+          amount: r.amount,
+        }));
+
+        const { error: recError } = await supabase
+          .from('receivables')
+          .insert(receivablesData);
+
+        if (recError) throw recError;
+      }
+
+      return operation.id as string;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['operations'] });
