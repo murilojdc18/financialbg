@@ -184,13 +184,14 @@ export function useFlexiblePayment() {
         const saldoTotalRestante = saldoPrincipalRestante + saldoPenaltyRestante + saldoInterestRestante;
         
         if (saldoTotalRestante > 0.01) {
-          // Calcular nova data de vencimento
+          // Calcular nova data de vencimento A PARTIR DA DATA DO PAGAMENTO
           let newDueDate: Date;
           if (deferToDate) {
             newDueDate = deferToDate;
           } else {
             const days = deferDays || 30;
-            newDueDate = new Date();
+            // CORREÇÃO: Usar paymentDate como base, não new Date()
+            newDueDate = new Date(paymentDate);
             newDueDate.setDate(newDueDate.getDate() + days);
           }
 

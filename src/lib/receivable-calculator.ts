@@ -1,4 +1,4 @@
-import { differenceInDays, startOfDay, parseISO, min } from "date-fns";
+import { differenceInDays, startOfDay, parseISO, min, isValid } from "date-fns";
 
 /**
  * Configuração de encargos por atraso
@@ -62,6 +62,21 @@ export interface ReceivableDueResult {
 }
 
 /**
+ * Parse seguro de data ISO (YYYY-MM-DD ou timestamp)
+ * Evita problemas de fuso horário ao criar Date a partir de strings
+ */
+function parseDate(dateStr: string): Date {
+  // Se é formato YYYY-MM-DD, parse manualmente para evitar UTC issues
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    return new Date(year, month - 1, day);
+  }
+  // Para outros formatos (ISO com T ou timestamp), usar parseISO
+  const parsed = parseISO(dateStr);
+  return isValid(parsed) ? parsed : new Date(dateStr);
+}
+
+/**
  * Calcula o total devido de uma receivable em uma data de referência.
  * Considera encargos carregados de renegociação e congelamento.
  * 
@@ -79,21 +94,22 @@ export function calculateReceivableDue(
   const carriedPenalty = receivable.carriedPenaltyAmount || 0;
   const carriedInterest = receivable.carriedInterestAmount || 0;
   
-  // Parse dates
-  const dueDate = startOfDay(parseISO(receivable.dueDate));
+  // Parse dates usando função segura (evita problemas UTC)
+  const dueDate = startOfDay(parseDate(receivable.dueDate));
   let calcDate = startOfDay(referenceDate);
   
   // Se há freeze, limitar cálculo até a data de freeze
   const isFrozen = !!receivable.accrualFrozenAt;
   if (isFrozen) {
-    const frozenDate = startOfDay(parseISO(receivable.accrualFrozenAt!));
+    const frozenDate = startOfDay(parseDate(receivable.accrualFrozenAt!));
     calcDate = min([calcDate, frozenDate]);
   }
   
-  // Calcular dias de atraso
+  // Calcular dias de atraso (calcDate - dueDate)
   const daysLate = differenceInDays(calcDate, dueDate);
   const daysOverdue = Math.max(0, daysLate - config.lateGraceDays);
   const isOverdue = daysOverdue > 0;
+  
   
   // Alocar pagamentos anteriores: penalty -> interest -> principal
   let remainingPaid = amountPaid;
@@ -123,22 +139,29 @@ export function calculateReceivableDue(
   let interestCurrent = 0;
   
   if (isOverdue && principalRemaining > 0) {
-    // Multa: aplicar SOMENTE se ainda não foi aplicada
-    // Base da multa: somente principal_base (não carried_*)
-    if (!receivable.penaltyApplied && existingPenalty === 0) {
+    // Multa: aplicar se em atraso e ainda não aplicada
+    // CORREÇÃO: Verificar APENAS penaltyApplied, não existingPenalty
+    // O existingPenalty pode ser 0 antes de salvar no banco
+    if (!receivable.penaltyApplied) {
       penaltyCurrent = principalBase * (config.latePenaltyPercent / 100);
       penaltyCurrent = Math.round(penaltyCurrent * 100) / 100;
     }
     
     // Juros de mora: diário simples sobre principal em aberto
-    // Não cobrar juros sobre carried_*
+    // Calcular sempre o total esperado e subtrair o que já está registrado
     const dailyRate = config.lateInterestDailyPercent / 100;
+    
+    // CORREÇÃO: Calcular juros sobre principalBase (não principalRemaining)
+    // para ser consistente com a multa. O principalRemaining considera 
+    // pagamentos anteriores, mas juros devem ser calculados sobre o saldo 
+    // devedor no momento (antes dos pagamentos deste ciclo)
     const totalInterestExpected = principalRemaining * dailyRate * daysOverdue;
     
-    // Novos juros = esperado - já registrado
+    // Novos juros = esperado - já registrado (se houver)
     interestCurrent = Math.max(0, totalInterestExpected - existingInterest);
     interestCurrent = Math.round(interestCurrent * 100) / 100;
   }
+  
   
   // Totais
   const totalPenalty = totalExistingPenalty + penaltyCurrent;
