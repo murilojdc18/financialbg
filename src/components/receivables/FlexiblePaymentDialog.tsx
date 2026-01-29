@@ -114,6 +114,21 @@ export function FlexiblePaymentDialog({
       lateInterestDailyPercent: Number(receivable.operations.late_interest_daily_percent) ?? 0.5,
     };
 
+    // DEBUG: Log configuração e dados do receivable
+    console.log('[FlexiblePaymentDialog] Dados para cálculo:', {
+      dueDate: receivable.due_date,
+      paidAt: watchPaidAt,
+      paidAtISO: watchPaidAt?.toISOString(),
+      config,
+      amount: receivable.amount,
+      amountPaid: receivable.amount_paid,
+      penaltyApplied: receivable.penalty_applied,
+      penaltyAmount: receivable.penalty_amount,
+      interestAccrued: receivable.interest_accrued,
+      carriedPenalty: receivable.carried_penalty_amount,
+      carriedInterest: receivable.carried_interest_amount,
+    });
+
     const result = calculateReceivableDue(
       {
         amount: receivable.amount,
@@ -129,6 +144,17 @@ export function FlexiblePaymentDialog({
       config,
       watchPaidAt
     );
+
+    // DEBUG: Log resultado do cálculo
+    console.log('[FlexiblePaymentDialog] Resultado do cálculo:', {
+      daysOverdue: result.daysOverdue,
+      isOverdue: result.isOverdue,
+      penaltyCurrent: result.penaltyCurrent,
+      interestCurrent: result.interestCurrent,
+      totalPenalty: result.totalPenalty,
+      totalInterest: result.totalInterest,
+      breakdown: result.breakdown,
+    });
 
     setDueResult(result);
     
@@ -458,11 +484,21 @@ export function FlexiblePaymentDialog({
                           </FormLabel>
                           <FormDescription>
                             Nova parcela com saldo total de {formatCurrency(balanceAfterPayment)}
-                            {balanceBreakdown && (
-                              <span className="block text-xs text-muted-foreground mt-1">
-                                (Principal: {formatCurrency(balanceBreakdown.principal)} + 
-                                Multa: {formatCurrency(balanceBreakdown.penalty)} + 
-                                Juros: {formatCurrency(balanceBreakdown.interest)})
+                            {/* SEMPRE mostrar breakdown, mesmo se valores forem 0 */}
+                            <span className="block text-xs text-muted-foreground mt-1">
+                              (Principal: {formatCurrency(balanceBreakdown?.principal ?? 0)} + 
+                              Multa: {formatCurrency(balanceBreakdown?.penalty ?? 0)} + 
+                              Juros: {formatCurrency(balanceBreakdown?.interest ?? 0)})
+                            </span>
+                            {/* Indicador de status de atraso */}
+                            {dueResult && !dueResult.isOverdue && (
+                              <span className="block text-xs text-emerald-600 mt-1">
+                                ✓ Sem atraso até a data do pagamento
+                              </span>
+                            )}
+                            {dueResult && dueResult.isOverdue && dueResult.daysOverdue > 0 && (
+                              <span className="block text-xs text-destructive mt-1">
+                                ⚠ {dueResult.daysOverdue} dia(s) de atraso - encargos aplicados
                               </span>
                             )}
                           </FormDescription>
@@ -489,7 +525,8 @@ export function FlexiblePaymentDialog({
                           </FormControl>
                           <FormDescription className="flex items-center gap-1">
                             <ArrowRight className="h-3 w-3" />
-                            Vencimento: {format(addDays(new Date(), watchDeferDays || 30), "dd/MM/yyyy")}
+                            {/* CORREÇÃO: Calcular a partir da data do pagamento, não de hoje */}
+                            Vencimento: {format(addDays(watchPaidAt ?? new Date(), watchDeferDays || 30), "dd/MM/yyyy")}
                           </FormDescription>
                           <FormMessage />
                         </FormItem>
