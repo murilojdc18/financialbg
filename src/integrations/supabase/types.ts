@@ -253,6 +253,66 @@ export type Database = {
       }
       produtos_tray: {
         Row: {
+          descricao_grande: string | null
+          estoque_atual: number | null
+          fim_promocao: string | null
+          imagem_2: string | null
+          imagem_3: string | null
+          imagem_4: string | null
+          imagem_principal: string | null
+          imagens_adicionais: string | null
+          inicio_promocao: string | null
+          marca: string | null
+          nome_categoria: string | null
+          nome_produto: string | null
+          preco_promocao: number | null
+          preco_venda: number | null
+          seo_palavra_chave: string | null
+          Uid: string
+          url_produto_tray: string | null
+        }
+        Insert: {
+          descricao_grande?: string | null
+          estoque_atual?: number | null
+          fim_promocao?: string | null
+          imagem_2?: string | null
+          imagem_3?: string | null
+          imagem_4?: string | null
+          imagem_principal?: string | null
+          imagens_adicionais?: string | null
+          inicio_promocao?: string | null
+          marca?: string | null
+          nome_categoria?: string | null
+          nome_produto?: string | null
+          preco_promocao?: number | null
+          preco_venda?: number | null
+          seo_palavra_chave?: string | null
+          Uid?: string
+          url_produto_tray?: string | null
+        }
+        Update: {
+          descricao_grande?: string | null
+          estoque_atual?: number | null
+          fim_promocao?: string | null
+          imagem_2?: string | null
+          imagem_3?: string | null
+          imagem_4?: string | null
+          imagem_principal?: string | null
+          imagens_adicionais?: string | null
+          inicio_promocao?: string | null
+          marca?: string | null
+          nome_categoria?: string | null
+          nome_produto?: string | null
+          preco_promocao?: number | null
+          preco_venda?: number | null
+          seo_palavra_chave?: string | null
+          Uid?: string
+          url_produto_tray?: string | null
+        }
+        Relationships: []
+      }
+      produtos_tray_duplicate: {
+        Row: {
           altura: number | null
           caracteristicas: string | null
           codigo_categoria: number | null
