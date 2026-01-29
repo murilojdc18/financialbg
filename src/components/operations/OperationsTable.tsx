@@ -1,5 +1,6 @@
 import { Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -38,6 +39,7 @@ export function OperationsTable({ operations }: OperationsTableProps) {
           <TableRow>
             <TableHead className="w-[100px]">ID</TableHead>
             <TableHead>Cliente</TableHead>
+            <TableHead className="text-center">Caixa</TableHead>
             <TableHead className="text-right">Valor</TableHead>
             <TableHead className="text-right">Taxa</TableHead>
             <TableHead className="text-center">Prazo</TableHead>
@@ -55,6 +57,11 @@ export function OperationsTable({ operations }: OperationsTableProps) {
                 </TableCell>
                 <TableCell className="font-medium">
                   {operation.clients?.name || "—"}
+                </TableCell>
+                <TableCell className="text-center">
+                  <Badge variant={operation.cash_source === "B&G" ? "default" : "secondary"}>
+                    {operation.cash_source || "B&G"}
+                  </Badge>
                 </TableCell>
                 <TableCell className="text-right">
                   {formatCurrency(Number(operation.principal))}

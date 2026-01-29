@@ -6,7 +6,7 @@ import { ReceivablesTable } from "@/components/receivables/ReceivablesTable";
 import { EmptyReceivablesState } from "@/components/receivables/EmptyReceivablesState";
 import { useClients } from "@/hooks/useClients";
 import { useReceivables } from "@/hooks/useReceivables";
-import { ReceivableStatus } from "@/types/database";
+import { ReceivableStatus, CashSource } from "@/types/database";
 import { Loader2 } from "lucide-react";
 import { isAfter, isBefore, startOfDay, parseISO } from "date-fns";
 
@@ -16,6 +16,7 @@ export default function ContasAReceber() {
   
   const [selectedClientId, setSelectedClientId] = useState<string>("all");
   const [selectedStatus, setSelectedStatus] = useState<ReceivableStatus | "all">("all");
+  const [selectedCashSource, setSelectedCashSource] = useState<CashSource | "all">("all");
   const [startDate, setStartDate] = useState<Date | undefined>(undefined);
   const [endDate, setEndDate] = useState<Date | undefined>(undefined);
 
@@ -45,6 +46,10 @@ export default function ContasAReceber() {
       if (selectedStatus !== "all" && rec.status !== selectedStatus) {
         return false;
       }
+      // Filtrar por caixa (cash_source está na operação vinculada)
+      if (selectedCashSource !== "all" && rec.operations?.cash_source !== selectedCashSource) {
+        return false;
+      }
       const dueDate = parseISO(rec.due_date);
       if (startDate && isBefore(dueDate, startOfDay(startDate))) {
         return false;
@@ -54,7 +59,7 @@ export default function ContasAReceber() {
       }
       return true;
     });
-  }, [processedReceivables, selectedClientId, selectedStatus, startDate, endDate]);
+  }, [processedReceivables, selectedClientId, selectedStatus, selectedCashSource, startDate, endDate]);
 
   // Calculate summaries
   const summaries = useMemo(() => {
@@ -78,12 +83,14 @@ export default function ContasAReceber() {
   const hasActiveFilters =
     selectedClientId !== "all" ||
     selectedStatus !== "all" ||
+    selectedCashSource !== "all" ||
     startDate !== undefined ||
     endDate !== undefined;
 
   const handleClearFilters = () => {
     setSelectedClientId("all");
     setSelectedStatus("all");
+    setSelectedCashSource("all");
     setStartDate(undefined);
     setEndDate(undefined);
   };
@@ -120,10 +127,12 @@ export default function ContasAReceber() {
           clients={clients}
           selectedClientId={selectedClientId}
           selectedStatus={selectedStatus}
+          selectedCashSource={selectedCashSource}
           startDate={startDate}
           endDate={endDate}
           onClientChange={setSelectedClientId}
           onStatusChange={(status) => setSelectedStatus(status as ReceivableStatus | "all")}
+          onCashSourceChange={setSelectedCashSource}
           onStartDateChange={setStartDate}
           onEndDateChange={setEndDate}
           onClearFilters={handleClearFilters}

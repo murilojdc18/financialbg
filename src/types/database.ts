@@ -18,6 +18,9 @@ export interface DbClient {
   updated_at: string;
 }
 
+// Tipo para origem do caixa
+export type CashSource = 'B&G' | 'PESSOAL';
+
 export interface DbOperation {
   id: string;
   owner_id: string;
@@ -31,6 +34,7 @@ export interface DbOperation {
   fee_insurance: number | null;
   status: OperationStatus;
   notes: string | null;
+  cash_source: CashSource;
   // Campos de cobrança com atraso
   late_grace_days: number;
   late_penalty_percent: number;
@@ -109,5 +113,5 @@ export interface DbOperationWithClient extends DbOperation {
 
 export interface DbReceivableWithRelations extends DbReceivable {
   clients: DbClient;
-  operations: DbOperation;
+  operations: DbOperation & { cash_source: CashSource };
 }

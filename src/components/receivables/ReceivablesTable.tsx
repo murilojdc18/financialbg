@@ -14,6 +14,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Badge } from "@/components/ui/badge";
 import { CheckCircle, Eye, History, Info } from "lucide-react";
 import { DbReceivableWithRelations, DbClient } from "@/types/database";
 import { formatCurrency } from "@/lib/loan-calculator";
@@ -122,11 +123,12 @@ export function ReceivablesTable({
     <TooltipProvider>
       <div className="rounded-md border">
         <Table>
-          <TableHeader>
+        <TableHeader>
             <TableRow>
               <TableHead>Parcela</TableHead>
               <TableHead>Cliente</TableHead>
               <TableHead>Operação</TableHead>
+              <TableHead className="text-center">Caixa</TableHead>
               <TableHead>Vencimento</TableHead>
               <TableHead className="text-right">Original</TableHead>
               <TableHead className="text-right">Total Devido</TableHead>
@@ -177,6 +179,11 @@ export function ReceivablesTable({
                     >
                       {receivable.operation_id.slice(0, 8)}
                     </Button>
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <Badge variant={receivable.operations?.cash_source === "B&G" ? "default" : "secondary"}>
+                      {receivable.operations?.cash_source || "B&G"}
+                    </Badge>
                   </TableCell>
                   <TableCell>{format(parseISO(receivable.due_date), "dd/MM/yyyy")}</TableCell>
                   <TableCell className="text-right">

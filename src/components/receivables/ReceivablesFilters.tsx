@@ -17,29 +17,39 @@ import { CalendarIcon, X } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
-import { DbClient, ReceivableStatus } from "@/types/database";
+import { DbClient, ReceivableStatus, CashSource } from "@/types/database";
 
 interface ReceivablesFiltersProps {
   clients: DbClient[];
   selectedClientId: string;
   selectedStatus: ReceivableStatus | "all";
+  selectedCashSource: CashSource | "all";
   startDate: Date | undefined;
   endDate: Date | undefined;
   onClientChange: (clientId: string) => void;
   onStatusChange: (status: string) => void;
+  onCashSourceChange: (cashSource: CashSource | "all") => void;
   onStartDateChange: (date: Date | undefined) => void;
   onEndDateChange: (date: Date | undefined) => void;
   onClearFilters: () => void;
 }
 
+const cashSourceOptions: { value: CashSource | "all"; label: string }[] = [
+  { value: "all", label: "Todos os caixas" },
+  { value: "B&G", label: "B&G" },
+  { value: "PESSOAL", label: "Pessoal" },
+];
+
 export function ReceivablesFilters({
   clients,
   selectedClientId,
   selectedStatus,
+  selectedCashSource,
   startDate,
   endDate,
   onClientChange,
   onStatusChange,
+  onCashSourceChange,
   onStartDateChange,
   onEndDateChange,
   onClearFilters,
@@ -47,6 +57,7 @@ export function ReceivablesFilters({
   const hasActiveFilters =
     selectedClientId !== "all" ||
     selectedStatus !== "all" ||
+    selectedCashSource !== "all" ||
     startDate !== undefined ||
     endDate !== undefined;
 
@@ -85,6 +96,24 @@ export function ReceivablesFilters({
             <SelectItem value="PARCIAL">Parcial</SelectItem>
             <SelectItem value="PAGO">Pago</SelectItem>
             <SelectItem value="ATRASADO">Atrasado</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="min-w-[140px]">
+        <Label htmlFor="cash-source-filter" className="text-sm font-medium">
+          Caixa
+        </Label>
+        <Select value={selectedCashSource} onValueChange={(v) => onCashSourceChange(v as CashSource | "all")}>
+          <SelectTrigger id="cash-source-filter" className="mt-1.5">
+            <SelectValue placeholder="Todos" />
+          </SelectTrigger>
+          <SelectContent>
+            {cashSourceOptions.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>

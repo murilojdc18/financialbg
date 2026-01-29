@@ -13,7 +13,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
-import { DbClient, OperationStatus } from "@/types/database";
+import { DbClient, OperationStatus, CashSource } from "@/types/database";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
@@ -24,6 +24,8 @@ interface OperationsFiltersProps {
   onClientChange: (clientId: string) => void;
   selectedStatus: string;
   onStatusChange: (status: string) => void;
+  selectedCashSource: CashSource | "all";
+  onCashSourceChange: (cashSource: CashSource | "all") => void;
   startDate: Date | undefined;
   endDate: Date | undefined;
   onStartDateChange: (date: Date | undefined) => void;
@@ -38,12 +40,20 @@ const statusOptions: { value: OperationStatus | "all"; label: string }[] = [
   { value: "CANCELADA", label: "Cancelada" },
 ];
 
+const cashSourceOptions: { value: CashSource | "all"; label: string }[] = [
+  { value: "all", label: "Todos os caixas" },
+  { value: "B&G", label: "B&G" },
+  { value: "PESSOAL", label: "Pessoal" },
+];
+
 export function OperationsFilters({
   clients,
   selectedClientId,
   onClientChange,
   selectedStatus,
   onStatusChange,
+  selectedCashSource,
+  onCashSourceChange,
   startDate,
   endDate,
   onStartDateChange,
@@ -53,6 +63,7 @@ export function OperationsFilters({
   const hasActiveFilters =
     selectedClientId !== "all" ||
     selectedStatus !== "all" ||
+    selectedCashSource !== "all" ||
     startDate !== undefined ||
     endDate !== undefined;
 
@@ -83,6 +94,22 @@ export function OperationsFilters({
           </SelectTrigger>
           <SelectContent>
             {statusOptions.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Cash Source Filter */}
+      <div className="w-full sm:w-[160px]">
+        <Select value={selectedCashSource} onValueChange={(v) => onCashSourceChange(v as CashSource | "all")}>
+          <SelectTrigger>
+            <SelectValue placeholder="Caixa" />
+          </SelectTrigger>
+          <SelectContent>
+            {cashSourceOptions.map((option) => (
               <SelectItem key={option.value} value={option.value}>
                 {option.label}
               </SelectItem>
