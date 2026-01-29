@@ -3,11 +3,11 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { 
-  calculateDetailedLateFees, 
-  allocatePayment, 
-  determineReceivableStatus,
+  calculateReceivableDue, 
+  allocatePaymentToComponents,
+  determineStatus,
   LateFeeConfig 
-} from '@/lib/late-fee-calculator';
+} from '@/lib/receivable-calculator';
 import { DbPayment, DbReceivable, ReceivableStatus, PaymentMethod } from '@/types/database';
 
 export interface FlexiblePaymentInput {
@@ -36,6 +36,10 @@ export interface ReceivableForPayment {
   interest_accrued: number;
   last_interest_calc_at: string | null;
   notes: string | null;
+  // Novos campos
+  carried_penalty_amount: number;
+  carried_interest_amount: number;
+  accrual_frozen_at: string | null;
   operations: {
     late_grace_days: number;
     late_penalty_percent: number;
@@ -67,6 +71,7 @@ export function usePaymentsByReceivable(receivableId: string) {
 
 /**
  * Hook principal para registro de pagamento flexível
+ * Corrigido para carregar encargos na nova parcela ao postergar
  */
 export function useFlexiblePayment() {
   const queryClient = useQueryClient();
@@ -84,51 +89,48 @@ export function useFlexiblePayment() {
         lateGraceDays: receivable.operations.late_grace_days ?? 0,
         latePenaltyPercent: Number(receivable.operations.late_penalty_percent) ?? 10,
         lateInterestDailyPercent: Number(receivable.operations.late_interest_daily_percent) ?? 0.5,
-        lateInterestMonthlyPercent: Number(receivable.operations.late_interest_monthly_percent) ?? 1,
       };
 
-      // Calcular encargos detalhados
-      const feeResult = calculateDetailedLateFees(
+      // Calcular encargos detalhados na data do pagamento
+      const dueResult = calculateReceivableDue(
         {
           amount: receivable.amount,
           amountPaid: receivable.amount_paid ?? 0,
           penaltyApplied: receivable.penalty_applied ?? false,
           penaltyAmount: receivable.penalty_amount ?? 0,
           interestAccrued: receivable.interest_accrued ?? 0,
-          lastInterestCalcAt: receivable.last_interest_calc_at,
+          carriedPenaltyAmount: receivable.carried_penalty_amount ?? 0,
+          carriedInterestAmount: receivable.carried_interest_amount ?? 0,
+          accrualFrozenAt: receivable.accrual_frozen_at,
           dueDate: receivable.due_date,
         },
         config,
         paymentDate
       );
 
-      // Atualizar multa e juros no receivable
-      const updatedPenaltyAmount = (receivable.penalty_amount ?? 0) + feeResult.newPenalty;
-      const updatedInterestAccrued = (receivable.interest_accrued ?? 0) + feeResult.newInterest;
-      const shouldApplyPenalty = feeResult.newPenalty > 0;
-
       // Alocar pagamento
-      const allocation = allocatePayment(
+      const allocation = allocatePaymentToComponents(
         amount,
-        feeResult.penaltyRemaining + feeResult.newPenalty,
-        feeResult.interestRemaining + feeResult.newInterest,
-        feeResult.principalRemaining
+        dueResult.breakdown.penalty,
+        dueResult.breakdown.interest,
+        dueResult.breakdown.principal
       );
 
-      // Calcular novos saldos após este pagamento
-      const newPenaltyRemaining = Math.max(0, (feeResult.penaltyRemaining + feeResult.newPenalty) - allocation.allocatedToPenalty);
-      const newInterestRemaining = Math.max(0, (feeResult.interestRemaining + feeResult.newInterest) - allocation.allocatedToInterest);
-      const newPrincipalRemaining = Math.max(0, feeResult.principalRemaining - allocation.allocatedToPrincipal);
-      
+      // Calcular novos valores após o pagamento
       const newAmountPaid = (receivable.amount_paid ?? 0) + amount;
+      
+      // Atualizar valores de multa/juros registrados
+      const updatedPenaltyAmount = dueResult.totalPenalty;
+      const updatedInterestAccrued = dueResult.totalInterest;
+      const shouldApplyPenalty = dueResult.penaltyCurrent > 0 || receivable.penalty_applied;
 
       // Determinar novo status
-      const newStatus = determineReceivableStatus(
-        newPrincipalRemaining,
-        newPenaltyRemaining,
-        newInterestRemaining,
+      const newStatus = determineStatus(
+        allocation.newPrincipalRemaining,
+        allocation.newPenaltyRemaining,
+        allocation.newInterestRemaining,
         newAmountPaid,
-        feeResult.daysOverdue > 0
+        dueResult.isOverdue
       );
 
       const isPaidInFull = newStatus === 'PAGO';
@@ -155,12 +157,8 @@ export function useFlexiblePayment() {
         interest_accrued: updatedInterestAccrued,
         last_interest_calc_at: paymentDate.toISOString().split('T')[0],
         status: newStatus,
+        penalty_applied: shouldApplyPenalty,
       };
-
-      // Marcar multa como aplicada se foi aplicada neste pagamento
-      if (shouldApplyPenalty || receivable.penalty_applied) {
-        receivableUpdate.penalty_applied = true;
-      }
 
       // Definir paid_at apenas se totalmente quitada
       if (isPaidInFull) {
@@ -179,9 +177,13 @@ export function useFlexiblePayment() {
       let newReceivableId: string | null = null;
       
       if (deferBalance && !isPaidInFull) {
-        const balanceRemaining = newPrincipalRemaining + newPenaltyRemaining + newInterestRemaining;
+        // CORREÇÃO PRINCIPAL: Carregar encargos restantes na nova parcela
+        const saldoPrincipalRestante = allocation.newPrincipalRemaining;
+        const saldoPenaltyRestante = allocation.newPenaltyRemaining;
+        const saldoInterestRestante = allocation.newInterestRemaining;
+        const saldoTotalRestante = saldoPrincipalRestante + saldoPenaltyRestante + saldoInterestRestante;
         
-        if (balanceRemaining > 0.01) {
+        if (saldoTotalRestante > 0.01) {
           // Calcular nova data de vencimento
           let newDueDate: Date;
           if (deferToDate) {
@@ -203,7 +205,7 @@ export function useFlexiblePayment() {
 
           const nextInstallmentNumber = (maxInstallment?.installment_number ?? 0) + 1;
 
-          // Criar nova parcela com saldo restante
+          // CRIAR NOVA PARCELA COM ENCARGOS CARREGADOS
           const { data: newReceivable, error: insertError } = await supabase
             .from('receivables')
             .insert({
@@ -211,12 +213,19 @@ export function useFlexiblePayment() {
               client_id: receivable.client_id,
               installment_number: nextInstallmentNumber,
               due_date: newDueDate.toISOString().split('T')[0],
-              amount: Math.round(balanceRemaining * 100) / 100,
+              // Principal puro (sem encargos)
+              amount: Math.round(saldoPrincipalRestante * 100) / 100,
               status: 'EM_ABERTO' as ReceivableStatus,
               amount_paid: 0,
+              // Não reaplicar multa (penalty_applied = false para novo vencimento)
               penalty_applied: false,
               penalty_amount: 0,
               interest_accrued: 0,
+              // ENCARGOS CARREGADOS - esta é a correção!
+              carried_penalty_amount: Math.round(saldoPenaltyRestante * 100) / 100,
+              carried_interest_amount: Math.round(saldoInterestRestante * 100) / 100,
+              // Rastrear origem
+              renegotiated_from_receivable_id: receivable.id,
             })
             .select('id')
             .single();
@@ -225,13 +234,15 @@ export function useFlexiblePayment() {
           
           newReceivableId = newReceivable?.id ?? null;
 
-          // Atualizar parcela original como renegociada
-          const renegotiationNote = `Saldo de R$ ${balanceRemaining.toFixed(2)} postergado para parcela ${nextInstallmentNumber}`;
+          // CONGELAR PARCELA ORIGINAL (parar de acumular encargos)
+          const renegotiationNote = `Saldo postergado: Principal R$ ${saldoPrincipalRestante.toFixed(2)} + Multa R$ ${saldoPenaltyRestante.toFixed(2)} + Juros R$ ${saldoInterestRestante.toFixed(2)} → Parcela ${nextInstallmentNumber}`;
           
           await supabase
             .from('receivables')
             .update({
               renegotiated_to_receivable_id: newReceivableId,
+              // Congelar acumulação na data do pagamento
+              accrual_frozen_at: paymentDate.toISOString().split('T')[0],
               notes: receivable.notes 
                 ? `${receivable.notes}\n${renegotiationNote}` 
                 : renegotiationNote,
@@ -249,6 +260,12 @@ export function useFlexiblePayment() {
         allocation,
         newStatus,
         isPaidInFull,
+        // Retornar para debugging
+        saldoRestante: {
+          principal: allocation.newPrincipalRemaining,
+          penalty: allocation.newPenaltyRemaining,
+          interest: allocation.newInterestRemaining,
+        },
       };
     },
     onSuccess: (result) => {
@@ -258,7 +275,7 @@ export function useFlexiblePayment() {
       if (result.newReceivableId) {
         toast({
           title: 'Pagamento registrado',
-          description: `Saldo restante postergado para nova parcela.`,
+          description: `Saldo restante (principal + encargos) postergado para nova parcela.`,
         });
       } else if (result.isPaidInFull) {
         toast({

@@ -17,7 +17,7 @@ import {
 import { CheckCircle, Eye, History, Info } from "lucide-react";
 import { DbReceivableWithRelations, DbClient } from "@/types/database";
 import { formatCurrency } from "@/lib/loan-calculator";
-import { calculateDetailedLateFees, LateFeeConfig } from "@/lib/late-fee-calculator";
+import { calculateReceivableDue, LateFeeConfig } from "@/lib/receivable-calculator";
 import { format, parseISO } from "date-fns";
 import { useNavigate } from "react-router-dom";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -49,7 +49,6 @@ export function ReceivablesTable({
       lateGraceDays: receivable.operations?.late_grace_days ?? 0,
       latePenaltyPercent: Number(receivable.operations?.late_penalty_percent) ?? 10,
       lateInterestDailyPercent: Number(receivable.operations?.late_interest_daily_percent) ?? 0.5,
-      lateInterestMonthlyPercent: Number(receivable.operations?.late_interest_monthly_percent) ?? 1,
     };
 
     const forPayment: ReceivableForPayment = {
@@ -66,10 +65,14 @@ export function ReceivablesTable({
       interest_accrued: receivable.interest_accrued ?? 0,
       last_interest_calc_at: receivable.last_interest_calc_at ?? null,
       notes: receivable.notes ?? null,
+      // Novos campos para encargos carregados
+      carried_penalty_amount: receivable.carried_penalty_amount ?? 0,
+      carried_interest_amount: receivable.carried_interest_amount ?? 0,
+      accrual_frozen_at: receivable.accrual_frozen_at ?? null,
       operations: {
         late_grace_days: config.lateGraceDays,
         late_penalty_percent: config.latePenaltyPercent,
-        late_interest_monthly_percent: config.lateInterestMonthlyPercent ?? 1,
+        late_interest_monthly_percent: 1,
         late_interest_daily_percent: config.lateInterestDailyPercent ?? 0.5,
       },
     };
@@ -97,17 +100,18 @@ export function ReceivablesTable({
       lateGraceDays: receivable.operations?.late_grace_days ?? 0,
       latePenaltyPercent: Number(receivable.operations?.late_penalty_percent) ?? 10,
       lateInterestDailyPercent: Number(receivable.operations?.late_interest_daily_percent) ?? 0.5,
-      lateInterestMonthlyPercent: Number(receivable.operations?.late_interest_monthly_percent) ?? 1,
     };
 
-    return calculateDetailedLateFees(
+    return calculateReceivableDue(
       {
         amount: receivable.amount,
         amountPaid: receivable.amount_paid ?? 0,
         penaltyApplied: receivable.penalty_applied ?? false,
         penaltyAmount: receivable.penalty_amount ?? 0,
         interestAccrued: receivable.interest_accrued ?? 0,
-        lastInterestCalcAt: receivable.last_interest_calc_at ?? null,
+        carriedPenaltyAmount: receivable.carried_penalty_amount ?? 0,
+        carriedInterestAmount: receivable.carried_interest_amount ?? 0,
+        accrualFrozenAt: receivable.accrual_frozen_at ?? null,
         dueDate: receivable.due_date,
       },
       config
@@ -138,6 +142,11 @@ export function ReceivablesTable({
               const feeResult = calculateFees(receivable);
               const amountPaid = receivable.amount_paid ?? 0;
               
+              // Encargos carregados
+              const carriedPenalty = receivable.carried_penalty_amount ?? 0;
+              const carriedInterest = receivable.carried_interest_amount ?? 0;
+              const hasCarriedFees = carriedPenalty > 0 || carriedInterest > 0;
+              
               const totalDue = isPaid 
                 ? amountPaid 
                 : (feeResult?.breakdown.total ?? receivable.amount);
@@ -148,6 +157,16 @@ export function ReceivablesTable({
                 <TableRow key={receivable.id}>
                   <TableCell className="font-medium">
                     {receivable.installment_number}ª
+                    {hasCarriedFees && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="ml-1 text-xs text-amber-600">*</span>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          Encargos trazidos de renegociação
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
                   </TableCell>
                   <TableCell>{receivable.clients?.name || "—"}</TableCell>
                   <TableCell>
@@ -164,19 +183,24 @@ export function ReceivablesTable({
                     {formatCurrency(Number(receivable.amount))}
                   </TableCell>
                   <TableCell className="text-right font-medium">
-                    {feeResult?.hasLateFees ? (
+                    {feeResult?.isOverdue || hasCarriedFees ? (
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <span className="text-destructive cursor-help flex items-center justify-end gap-1">
+                          <span className={hasCarriedFees ? "text-amber-600 cursor-help flex items-center justify-end gap-1" : "text-destructive cursor-help flex items-center justify-end gap-1"}>
                             {formatCurrency(totalDue)}
                             <Info className="h-3 w-3" />
                           </span>
                         </TooltipTrigger>
                         <TooltipContent side="left">
                           <div className="space-y-1 text-sm">
-                            <p>Principal: {formatCurrency(feeResult.breakdown.principal)}</p>
-                            <p>Multa: {formatCurrency(feeResult.breakdown.penalty)}</p>
-                            <p>Juros ({feeResult.daysOverdue}d): {formatCurrency(feeResult.breakdown.interest)}</p>
+                            <p>Principal: {formatCurrency(feeResult?.breakdown.principal ?? receivable.amount)}</p>
+                            <p>Multa: {formatCurrency(feeResult?.breakdown.penalty ?? 0)}</p>
+                            <p>Juros: {formatCurrency(feeResult?.breakdown.interest ?? 0)}</p>
+                            {hasCarriedFees && (
+                              <p className="text-amber-600 font-medium pt-1 border-t">
+                                Inclui encargos de renegociação
+                              </p>
+                            )}
                           </div>
                         </TooltipContent>
                       </Tooltip>

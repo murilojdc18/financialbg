@@ -18,7 +18,7 @@ import {
 import { Loader2, Receipt, AlertCircle, Info, CheckCircle, History } from "lucide-react";
 import { format, parseISO, isBefore, startOfDay } from "date-fns";
 import { formatCurrency } from "@/lib/loan-calculator";
-import { calculateDetailedLateFees, LateFeeConfig, DetailedLateFeeResult } from "@/lib/late-fee-calculator";
+import { calculateReceivableDue, LateFeeConfig, ReceivableDueResult } from "@/lib/receivable-calculator";
 import { useReceivablesByOperation } from "@/hooks/useReceivables";
 import { ReceivableForPayment } from "@/hooks/useFlexiblePayment";
 import { DbReceivable, ReceivableStatus } from "@/types/database";
@@ -68,10 +68,14 @@ export function ReceivablesSection({ operationId, lateFeeConfig }: ReceivablesSe
       interest_accrued: receivable.interest_accrued ?? 0,
       last_interest_calc_at: receivable.last_interest_calc_at ?? null,
       notes: receivable.notes ?? null,
+      // Novos campos para encargos carregados
+      carried_penalty_amount: receivable.carried_penalty_amount ?? 0,
+      carried_interest_amount: receivable.carried_interest_amount ?? 0,
+      accrual_frozen_at: receivable.accrual_frozen_at ?? null,
       operations: {
         late_grace_days: lateFeeConfig.lateGraceDays,
         late_penalty_percent: lateFeeConfig.latePenaltyPercent,
-        late_interest_monthly_percent: lateFeeConfig.lateInterestMonthlyPercent ?? 1,
+        late_interest_monthly_percent: 1,
         late_interest_daily_percent: lateFeeConfig.lateInterestDailyPercent ?? 0.5,
       },
     };
@@ -91,18 +95,20 @@ export function ReceivablesSection({ operationId, lateFeeConfig }: ReceivablesSe
     setSelectedReceivable(null);
   };
 
-  // Função para calcular encargos detalhados
-  const calculateFees = (receivable: DbReceivable): DetailedLateFeeResult | null => {
+  // Função para calcular encargos detalhados (usando novo calculador)
+  const calculateFees = (receivable: DbReceivable): ReceivableDueResult | null => {
     if (receivable.status === "PAGO") return null;
 
-    return calculateDetailedLateFees(
+    return calculateReceivableDue(
       {
         amount: receivable.amount,
         amountPaid: receivable.amount_paid ?? 0,
         penaltyApplied: receivable.penalty_applied ?? false,
         penaltyAmount: receivable.penalty_amount ?? 0,
         interestAccrued: receivable.interest_accrued ?? 0,
-        lastInterestCalcAt: receivable.last_interest_calc_at ?? null,
+        carriedPenaltyAmount: receivable.carried_penalty_amount ?? 0,
+        carriedInterestAmount: receivable.carried_interest_amount ?? 0,
+        accrualFrozenAt: receivable.accrual_frozen_at ?? null,
         dueDate: receivable.due_date,
       },
       lateFeeConfig
@@ -167,8 +173,11 @@ export function ReceivablesSection({ operationId, lateFeeConfig }: ReceivablesSe
                     const isPaid = receivable.status === "PAGO";
                     const feeResult = calculateFees(receivable);
                     
-                    const penaltyAmount = receivable.penalty_amount ?? 0;
-                    const interestAmount = receivable.interest_accrued ?? 0;
+                    // Encargos (incluindo carregados)
+                    const carriedPenalty = receivable.carried_penalty_amount ?? 0;
+                    const carriedInterest = receivable.carried_interest_amount ?? 0;
+                    const hasCarriedFees = carriedPenalty > 0 || carriedInterest > 0;
+                    
                     const amountPaid = receivable.amount_paid ?? 0;
                     
                     // Total devido = original + multa + juros
@@ -183,6 +192,16 @@ export function ReceivablesSection({ operationId, lateFeeConfig }: ReceivablesSe
                       <TableRow key={receivable.id}>
                         <TableCell className="font-medium">
                           {receivable.installment_number}
+                          {hasCarriedFees && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="ml-1 text-xs text-amber-600">*</span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                Encargos trazidos de renegociação
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
                         </TableCell>
                         <TableCell>
                           {format(parseISO(receivable.due_date), "dd/MM/yyyy")}
@@ -191,32 +210,44 @@ export function ReceivablesSection({ operationId, lateFeeConfig }: ReceivablesSe
                           {formatCurrency(receivable.amount)}
                         </TableCell>
                         <TableCell className="text-right">
-                          {penaltyAmount > 0 || (feeResult?.breakdown.penalty ?? 0) > 0 ? (
-                            <span className="text-destructive">
-                              {formatCurrency(feeResult?.breakdown.penalty ?? penaltyAmount)}
-                            </span>
+                          {(feeResult?.breakdown.penalty ?? 0) > 0 ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className={carriedPenalty > 0 ? "text-amber-600 cursor-help" : "text-destructive"}>
+                                  {formatCurrency(feeResult?.breakdown.penalty ?? 0)}
+                                </span>
+                              </TooltipTrigger>
+                              {carriedPenalty > 0 && (
+                                <TooltipContent>
+                                  Inclui R$ {carriedPenalty.toFixed(2)} de renegociação
+                                </TooltipContent>
+                              )}
+                            </Tooltip>
                           ) : (
-                            <span className="text-muted-foreground">—</span>
+                            <span className="text-muted-foreground">R$ 0,00</span>
                           )}
                         </TableCell>
                         <TableCell className="text-right">
-                          {interestAmount > 0 || (feeResult?.breakdown.interest ?? 0) > 0 ? (
+                          {(feeResult?.breakdown.interest ?? 0) > 0 ? (
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <span className="text-destructive cursor-help">
-                                  {formatCurrency(feeResult?.breakdown.interest ?? interestAmount)}
+                                <span className={carriedInterest > 0 ? "text-amber-600 cursor-help" : "text-destructive cursor-help"}>
+                                  {formatCurrency(feeResult?.breakdown.interest ?? 0)}
                                 </span>
                               </TooltipTrigger>
                               <TooltipContent>
-                                {feeResult?.daysOverdue ?? 0} dias em atraso
+                                {carriedInterest > 0 
+                                  ? `Inclui R$ ${carriedInterest.toFixed(2)} de renegociação`
+                                  : `${feeResult?.daysOverdue ?? 0} dias em atraso`
+                                }
                               </TooltipContent>
                             </Tooltip>
                           ) : (
-                            <span className="text-muted-foreground">—</span>
+                            <span className="text-muted-foreground">R$ 0,00</span>
                           )}
                         </TableCell>
                         <TableCell className="text-right font-medium">
-                          {feeResult?.hasLateFees ? (
+                          {feeResult?.isOverdue ? (
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <span className="text-destructive cursor-help flex items-center justify-end gap-1">
