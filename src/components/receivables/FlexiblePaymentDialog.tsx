@@ -49,11 +49,11 @@ import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/loan-calculator";
 import { 
-  calculateDetailedLateFees, 
-  allocatePayment,
+  calculateReceivableDue, 
+  allocatePaymentToComponents,
   LateFeeConfig,
-  DetailedLateFeeResult 
-} from "@/lib/late-fee-calculator";
+  ReceivableDueResult 
+} from "@/lib/receivable-calculator";
 import { PaymentMethod } from "@/types/database";
 import { ReceivableForPayment, useFlexiblePayment } from "@/hooks/useFlexiblePayment";
 
@@ -85,7 +85,7 @@ export function FlexiblePaymentDialog({
   onSuccess,
 }: FlexiblePaymentDialogProps) {
   const flexiblePayment = useFlexiblePayment();
-  const [feeResult, setFeeResult] = useState<DetailedLateFeeResult | null>(null);
+  const [dueResult, setDueResult] = useState<ReceivableDueResult | null>(null);
   
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -112,24 +112,25 @@ export function FlexiblePaymentDialog({
       lateGraceDays: receivable.operations.late_grace_days ?? 0,
       latePenaltyPercent: Number(receivable.operations.late_penalty_percent) ?? 10,
       lateInterestDailyPercent: Number(receivable.operations.late_interest_daily_percent) ?? 0.5,
-      lateInterestMonthlyPercent: Number(receivable.operations.late_interest_monthly_percent) ?? 1,
     };
 
-    const result = calculateDetailedLateFees(
+    const result = calculateReceivableDue(
       {
         amount: receivable.amount,
         amountPaid: receivable.amount_paid ?? 0,
         penaltyApplied: receivable.penalty_applied ?? false,
         penaltyAmount: receivable.penalty_amount ?? 0,
         interestAccrued: receivable.interest_accrued ?? 0,
-        lastInterestCalcAt: receivable.last_interest_calc_at,
+        carriedPenaltyAmount: receivable.carried_penalty_amount ?? 0,
+        carriedInterestAmount: receivable.carried_interest_amount ?? 0,
+        accrualFrozenAt: receivable.accrual_frozen_at,
         dueDate: receivable.due_date,
       },
       config,
       watchPaidAt
     );
 
-    setFeeResult(result);
+    setDueResult(result);
     
     // Definir valor padrão como saldo total
     if (result.balance > 0) {
@@ -139,21 +140,31 @@ export function FlexiblePaymentDialog({
 
   // Calcular prévia da alocação
   const allocationPreview = useMemo(() => {
-    if (!feeResult || !watchAmount) return null;
+    if (!dueResult || !watchAmount) return null;
     
-    return allocatePayment(
+    return allocatePaymentToComponents(
       watchAmount,
-      feeResult.breakdown.penalty,
-      feeResult.breakdown.interest,
-      feeResult.breakdown.principal
+      dueResult.breakdown.penalty,
+      dueResult.breakdown.interest,
+      dueResult.breakdown.principal
     );
-  }, [feeResult, watchAmount]);
+  }, [dueResult, watchAmount]);
 
   // Calcular saldo restante após pagamento
   const balanceAfterPayment = useMemo(() => {
-    if (!feeResult || !watchAmount) return feeResult?.breakdown.total ?? 0;
-    return Math.max(0, feeResult.breakdown.total - watchAmount);
-  }, [feeResult, watchAmount]);
+    if (!dueResult || !watchAmount) return dueResult?.breakdown.total ?? 0;
+    return Math.max(0, dueResult.breakdown.total - watchAmount);
+  }, [dueResult, watchAmount]);
+
+  // Detalhamento do saldo restante para o tooltip
+  const balanceBreakdown = useMemo(() => {
+    if (!allocationPreview) return null;
+    return {
+      principal: allocationPreview.newPrincipalRemaining,
+      penalty: allocationPreview.newPenaltyRemaining,
+      interest: allocationPreview.newInterestRemaining,
+    };
+  }, [allocationPreview]);
 
   const handleSubmit = async (values: FormValues) => {
     if (!receivable) return;
@@ -178,12 +189,14 @@ export function FlexiblePaymentDialog({
   const handleOpenChange = (newOpen: boolean) => {
     if (!newOpen) {
       form.reset();
-      setFeeResult(null);
+      setDueResult(null);
     }
     onOpenChange(newOpen);
   };
 
   if (!receivable) return null;
+
+  const hasCarriedFees = (receivable.carried_penalty_amount ?? 0) > 0 || (receivable.carried_interest_amount ?? 0) > 0;
 
   return (
     <TooltipProvider>
@@ -199,13 +212,49 @@ export function FlexiblePaymentDialog({
           <Form {...form}>
             <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
               {/* Resumo do saldo */}
-              {feeResult && (
+              {dueResult && (
                 <div className="rounded-lg border bg-muted/50 p-4 space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Principal em aberto:</span>
-                    <span>{formatCurrency(feeResult.breakdown.principal)}</span>
+                    <span>{formatCurrency(dueResult.breakdown.principal)}</span>
                   </div>
-                  {feeResult.breakdown.penalty > 0 && (
+                  
+                  {/* Encargos carregados de renegociação */}
+                  {hasCarriedFees && (
+                    <>
+                      {(receivable.carried_penalty_amount ?? 0) > 0 && (
+                        <div className="flex justify-between text-sm text-amber-600">
+                          <span className="flex items-center gap-1">
+                            Multa (renegociação)
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Info className="h-3 w-3" />
+                              </TooltipTrigger>
+                              <TooltipContent>Multa trazida da parcela original</TooltipContent>
+                            </Tooltip>
+                          </span>
+                          <span>{formatCurrency(receivable.carried_penalty_amount)}</span>
+                        </div>
+                      )}
+                      {(receivable.carried_interest_amount ?? 0) > 0 && (
+                        <div className="flex justify-between text-sm text-amber-600">
+                          <span className="flex items-center gap-1">
+                            Juros (renegociação)
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Info className="h-3 w-3" />
+                              </TooltipTrigger>
+                              <TooltipContent>Juros de mora trazidos da parcela original</TooltipContent>
+                            </Tooltip>
+                          </span>
+                          <span>{formatCurrency(receivable.carried_interest_amount)}</span>
+                        </div>
+                      )}
+                    </>
+                  )}
+                  
+                  {/* Encargos atuais */}
+                  {dueResult.breakdown.penalty > 0 && (
                     <div className="flex justify-between text-sm text-destructive">
                       <span className="flex items-center gap-1">
                         Multa ({receivable.operations.late_penalty_percent}%)
@@ -216,13 +265,13 @@ export function FlexiblePaymentDialog({
                           <TooltipContent>Multa única aplicada ao entrar em atraso</TooltipContent>
                         </Tooltip>
                       </span>
-                      <span>{formatCurrency(feeResult.breakdown.penalty)}</span>
+                      <span>{formatCurrency(dueResult.breakdown.penalty)}</span>
                     </div>
                   )}
-                  {feeResult.breakdown.interest > 0 && (
+                  {dueResult.breakdown.interest > 0 && (
                     <div className="flex justify-between text-sm text-destructive">
                       <span className="flex items-center gap-1">
-                        Juros mora ({feeResult.daysOverdue} dias)
+                        Juros mora ({dueResult.daysOverdue} dias)
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Info className="h-3 w-3" />
@@ -232,20 +281,20 @@ export function FlexiblePaymentDialog({
                           </TooltipContent>
                         </Tooltip>
                       </span>
-                      <span>{formatCurrency(feeResult.breakdown.interest)}</span>
+                      <span>{formatCurrency(dueResult.breakdown.interest)}</span>
                     </div>
                   )}
-                  {feeResult.totalPaid > 0 && (
+                  {dueResult.totalPaid > 0 && (
                     <div className="flex justify-between text-sm text-emerald-600">
                       <span>Já pago anteriormente:</span>
-                      <span>-{formatCurrency(feeResult.totalPaid)}</span>
+                      <span>-{formatCurrency(dueResult.totalPaid)}</span>
                     </div>
                   )}
                   <Separator className="my-2" />
                   <div className="flex justify-between font-semibold">
                     <span>Saldo devido hoje:</span>
-                    <span className={feeResult.hasLateFees ? "text-destructive" : ""}>
-                      {formatCurrency(feeResult.breakdown.total)}
+                    <span className={dueResult.isOverdue ? "text-destructive" : ""}>
+                      {formatCurrency(dueResult.breakdown.total)}
                     </span>
                   </div>
                 </div>
@@ -301,9 +350,24 @@ export function FlexiblePaymentDialog({
                   <Separator className="my-2" />
                   <div className="flex justify-between font-medium">
                     <span>Saldo restante:</span>
-                    <span className={balanceAfterPayment > 0 ? "text-warning" : "text-primary"}>
-                      {formatCurrency(balanceAfterPayment)}
-                    </span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className={cn(
+                          "cursor-help flex items-center gap-1",
+                          balanceAfterPayment > 0 ? "text-warning" : "text-primary"
+                        )}>
+                          {formatCurrency(balanceAfterPayment)}
+                          {balanceBreakdown && balanceAfterPayment > 0 && <Info className="h-3 w-3" />}
+                        </span>
+                      </TooltipTrigger>
+                      {balanceBreakdown && balanceAfterPayment > 0 && (
+                        <TooltipContent side="left" className="text-xs">
+                          <p>Principal: {formatCurrency(balanceBreakdown.principal)}</p>
+                          <p>Multa: {formatCurrency(balanceBreakdown.penalty)}</p>
+                          <p>Juros: {formatCurrency(balanceBreakdown.interest)}</p>
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
                   </div>
                 </div>
               )}
@@ -373,7 +437,7 @@ export function FlexiblePaymentDialog({
                 )}
               />
 
-              {/* Checkbox postergar saldo */}
+              {/* Checkbox postergar saldo - MOSTRA DETALHAMENTO */}
               {balanceAfterPayment > 0.01 && (
                 <>
                   <Separator />
@@ -393,7 +457,14 @@ export function FlexiblePaymentDialog({
                             Postergar saldo restante para nova parcela
                           </FormLabel>
                           <FormDescription>
-                            Cria uma nova parcela com o saldo de {formatCurrency(balanceAfterPayment)}
+                            Nova parcela com saldo total de {formatCurrency(balanceAfterPayment)}
+                            {balanceBreakdown && (
+                              <span className="block text-xs text-muted-foreground mt-1">
+                                (Principal: {formatCurrency(balanceBreakdown.principal)} + 
+                                Multa: {formatCurrency(balanceBreakdown.penalty)} + 
+                                Juros: {formatCurrency(balanceBreakdown.interest)})
+                              </span>
+                            )}
                           </FormDescription>
                         </div>
                       </FormItem>
@@ -456,9 +527,18 @@ export function FlexiblePaymentDialog({
                 >
                   Cancelar
                 </Button>
-                <Button type="submit" disabled={flexiblePayment.isPending}>
-                  {flexiblePayment.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Confirmar Pagamento
+                <Button 
+                  type="submit" 
+                  disabled={flexiblePayment.isPending || !watchAmount || watchAmount <= 0}
+                >
+                  {flexiblePayment.isPending ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Registrando...
+                    </>
+                  ) : (
+                    "Registrar Pagamento"
+                  )}
                 </Button>
               </DialogFooter>
             </form>

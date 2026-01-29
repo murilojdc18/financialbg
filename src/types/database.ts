@@ -61,6 +61,11 @@ export interface DbReceivable {
   last_interest_calc_at: string | null;
   // Renegociação
   renegotiated_to_receivable_id: string | null;
+  // Novos campos para encargos carregados e congelamento
+  carried_penalty_amount: number;
+  carried_interest_amount: number;
+  renegotiated_from_receivable_id: string | null;
+  accrual_frozen_at: string | null;
   created_at: string;
   updated_at: string;
 }

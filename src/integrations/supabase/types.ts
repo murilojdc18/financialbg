@@ -498,8 +498,11 @@ export type Database = {
       }
       receivables: {
         Row: {
+          accrual_frozen_at: string | null
           amount: number
           amount_paid: number | null
+          carried_interest_amount: number | null
+          carried_penalty_amount: number | null
           client_id: string
           created_at: string | null
           due_date: string
@@ -514,13 +517,17 @@ export type Database = {
           payment_method: Database["public"]["Enums"]["payment_method"] | null
           penalty_amount: number | null
           penalty_applied: boolean | null
+          renegotiated_from_receivable_id: string | null
           renegotiated_to_receivable_id: string | null
           status: Database["public"]["Enums"]["receivable_status"]
           updated_at: string | null
         }
         Insert: {
+          accrual_frozen_at?: string | null
           amount: number
           amount_paid?: number | null
+          carried_interest_amount?: number | null
+          carried_penalty_amount?: number | null
           client_id: string
           created_at?: string | null
           due_date: string
@@ -535,13 +542,17 @@ export type Database = {
           payment_method?: Database["public"]["Enums"]["payment_method"] | null
           penalty_amount?: number | null
           penalty_applied?: boolean | null
+          renegotiated_from_receivable_id?: string | null
           renegotiated_to_receivable_id?: string | null
           status?: Database["public"]["Enums"]["receivable_status"]
           updated_at?: string | null
         }
         Update: {
+          accrual_frozen_at?: string | null
           amount?: number
           amount_paid?: number | null
+          carried_interest_amount?: number | null
+          carried_penalty_amount?: number | null
           client_id?: string
           created_at?: string | null
           due_date?: string
@@ -556,6 +567,7 @@ export type Database = {
           payment_method?: Database["public"]["Enums"]["payment_method"] | null
           penalty_amount?: number | null
           penalty_applied?: boolean | null
+          renegotiated_from_receivable_id?: string | null
           renegotiated_to_receivable_id?: string | null
           status?: Database["public"]["Enums"]["receivable_status"]
           updated_at?: string | null
@@ -573,6 +585,13 @@ export type Database = {
             columns: ["operation_id"]
             isOneToOne: false
             referencedRelation: "operations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "receivables_renegotiated_from_receivable_id_fkey"
+            columns: ["renegotiated_from_receivable_id"]
+            isOneToOne: false
+            referencedRelation: "receivables"
             referencedColumns: ["id"]
           },
           {
