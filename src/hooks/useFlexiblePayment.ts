@@ -5,6 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { 
   calculateReceivableDue, 
   allocatePaymentToComponents,
+  allocateDeferToComponents,
   determineStatus,
   LateFeeConfig 
 } from '@/lib/receivable-calculator';
@@ -20,6 +21,8 @@ export interface FlexiblePaymentInput {
   deferBalance?: boolean;
   deferDays?: number;
   deferToDate?: Date;
+  // Valor customizado a postergar (se não for o saldo total)
+  customDeferAmount?: number;
 }
 
 export interface ReceivableForPayment {
@@ -82,7 +85,7 @@ export function useFlexiblePayment() {
     mutationFn: async (input: FlexiblePaymentInput & { receivable: ReceivableForPayment }) => {
       if (!user) throw new Error('Usuário não autenticado');
 
-      const { receivable, amount, paymentDate, paymentMethod, note, deferBalance, deferDays, deferToDate } = input;
+      const { receivable, amount, paymentDate, paymentMethod, note, deferBalance, deferDays, deferToDate, customDeferAmount } = input;
       
       // Configuração de juros/multa da operação
       const config: LateFeeConfig = {
@@ -177,13 +180,26 @@ export function useFlexiblePayment() {
       let newReceivableId: string | null = null;
       
       if (deferBalance && !isPaidInFull) {
-        // CORREÇÃO PRINCIPAL: Carregar encargos restantes na nova parcela
+        // Saldo restante total disponível após o pagamento
         const saldoPrincipalRestante = allocation.newPrincipalRemaining;
         const saldoPenaltyRestante = allocation.newPenaltyRemaining;
         const saldoInterestRestante = allocation.newInterestRemaining;
         const saldoTotalRestante = saldoPrincipalRestante + saldoPenaltyRestante + saldoInterestRestante;
         
-        if (saldoTotalRestante > 0.01) {
+        // Determinar valor a postergar (usa customDeferAmount se fornecido, senão saldo total)
+        const valorAPostegar = customDeferAmount !== undefined && customDeferAmount >= 0
+          ? Math.min(customDeferAmount, saldoTotalRestante)
+          : saldoTotalRestante;
+        
+        if (valorAPostegar > 0.01) {
+          // Alocar o valor a postergar: juros -> multa -> principal
+          const deferAllocation = allocateDeferToComponents(
+            valorAPostegar,
+            saldoPenaltyRestante,
+            saldoInterestRestante,
+            saldoPrincipalRestante
+          );
+          
           // Calcular nova data de vencimento A PARTIR DA DATA DO PAGAMENTO
           let newDueDate: Date;
           if (deferToDate) {
@@ -214,17 +230,17 @@ export function useFlexiblePayment() {
               client_id: receivable.client_id,
               installment_number: nextInstallmentNumber,
               due_date: newDueDate.toISOString().split('T')[0],
-              // Principal puro (sem encargos)
-              amount: Math.round(saldoPrincipalRestante * 100) / 100,
+              // Principal postergado
+              amount: deferAllocation.carriedPrincipal,
               status: 'EM_ABERTO' as ReceivableStatus,
               amount_paid: 0,
               // Não reaplicar multa (penalty_applied = false para novo vencimento)
               penalty_applied: false,
               penalty_amount: 0,
               interest_accrued: 0,
-              // ENCARGOS CARREGADOS - esta é a correção!
-              carried_penalty_amount: Math.round(saldoPenaltyRestante * 100) / 100,
-              carried_interest_amount: Math.round(saldoInterestRestante * 100) / 100,
+              // ENCARGOS CARREGADOS
+              carried_penalty_amount: deferAllocation.carriedPenalty,
+              carried_interest_amount: deferAllocation.carriedInterest,
               // Rastrear origem
               renegotiated_from_receivable_id: receivable.id,
             })
@@ -235,22 +251,31 @@ export function useFlexiblePayment() {
           
           newReceivableId = newReceivable?.id ?? null;
 
-          // CONGELAR PARCELA ORIGINAL (parar de acumular encargos)
-          const renegotiationNote = `Saldo postergado: Principal R$ ${saldoPrincipalRestante.toFixed(2)} + Multa R$ ${saldoPenaltyRestante.toFixed(2)} + Juros R$ ${saldoInterestRestante.toFixed(2)} → Parcela ${nextInstallmentNumber}`;
+          // Determinar status da parcela original
+          const saldoQuefica = saldoTotalRestante - valorAPostegar;
+          const originalStatus: ReceivableStatus = saldoQuefica <= 0.01 ? 'PAGO' : 'PARCIAL';
+
+          // ATUALIZAR PARCELA ORIGINAL
+          const renegotiationNote = `Saldo postergado: Principal R$ ${deferAllocation.carriedPrincipal.toFixed(2)} + Multa R$ ${deferAllocation.carriedPenalty.toFixed(2)} + Juros R$ ${deferAllocation.carriedInterest.toFixed(2)} → Parcela ${nextInstallmentNumber}`;
           
+          const originalUpdate: Record<string, unknown> = {
+            renegotiated_to_receivable_id: newReceivableId,
+            // Congelar acumulação na data do pagamento
+            accrual_frozen_at: paymentDate.toISOString().split('T')[0],
+            notes: receivable.notes 
+              ? `${receivable.notes}\n${renegotiationNote}` 
+              : renegotiationNote,
+            status: originalStatus,
+          };
+
+          // Se zerou tudo, marcar como pago
+          if (originalStatus === 'PAGO') {
+            originalUpdate.paid_at = paymentDate.toISOString();
+          }
+
           await supabase
             .from('receivables')
-            .update({
-              renegotiated_to_receivable_id: newReceivableId,
-              // Congelar acumulação na data do pagamento
-              accrual_frozen_at: paymentDate.toISOString().split('T')[0],
-              notes: receivable.notes 
-                ? `${receivable.notes}\n${renegotiationNote}` 
-                : renegotiationNote,
-              // Marcar como PAGO já que o saldo foi movido
-              status: 'PAGO' as ReceivableStatus,
-              paid_at: paymentDate.toISOString(),
-            })
+            .update(originalUpdate)
             .eq('id', receivable.id);
         }
       }

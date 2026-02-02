@@ -241,6 +241,56 @@ export function allocatePaymentToComponents(
 }
 
 /**
+ * Aloca um valor de postergação nos componentes (ordem inversa ao pagamento):
+ * (1) juros -> (2) multa -> (3) principal
+ * Isso significa que o juros/multa são priorizados para serem carregados na nova parcela.
+ */
+export function allocateDeferToComponents(
+  deferAmount: number,
+  penaltyRemaining: number,
+  interestRemaining: number,
+  principalRemaining: number
+): {
+  carriedInterest: number;
+  carriedPenalty: number;
+  carriedPrincipal: number;
+  totalCarried: number;
+  remainingInterest: number;
+  remainingPenalty: number;
+  remainingPrincipal: number;
+  totalRemaining: number;
+} {
+  let remaining = deferAmount;
+
+  // 1. Aloca para juros primeiro (prioridade para carregar encargos)
+  const carriedInterest = Math.min(remaining, interestRemaining);
+  remaining -= carriedInterest;
+
+  // 2. Aloca para multa
+  const carriedPenalty = Math.min(remaining, penaltyRemaining);
+  remaining -= carriedPenalty;
+
+  // 3. Aloca para principal
+  const carriedPrincipal = Math.min(remaining, principalRemaining);
+
+  // Calcular o que fica na parcela original
+  const remainingInterest = Math.max(0, interestRemaining - carriedInterest);
+  const remainingPenalty = Math.max(0, penaltyRemaining - carriedPenalty);
+  const remainingPrincipal = Math.max(0, principalRemaining - carriedPrincipal);
+
+  return {
+    carriedInterest: Math.round(carriedInterest * 100) / 100,
+    carriedPenalty: Math.round(carriedPenalty * 100) / 100,
+    carriedPrincipal: Math.round(carriedPrincipal * 100) / 100,
+    totalCarried: Math.round((carriedInterest + carriedPenalty + carriedPrincipal) * 100) / 100,
+    remainingInterest: Math.round(remainingInterest * 100) / 100,
+    remainingPenalty: Math.round(remainingPenalty * 100) / 100,
+    remainingPrincipal: Math.round(remainingPrincipal * 100) / 100,
+    totalRemaining: Math.round((remainingInterest + remainingPenalty + remainingPrincipal) * 100) / 100,
+  };
+}
+
+/**
  * Determina o status de uma receivable após um pagamento
  */
 export function determineStatus(
