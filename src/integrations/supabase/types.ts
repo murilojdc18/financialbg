@@ -124,6 +124,7 @@ export type Database = {
       }
       operations: {
         Row: {
+          archived_at: string | null
           cash_source: string
           client_id: string
           created_at: string | null
@@ -145,6 +146,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          archived_at?: string | null
           cash_source?: string
           client_id: string
           created_at?: string | null
@@ -166,6 +168,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          archived_at?: string | null
           cash_source?: string
           client_id?: string
           created_at?: string | null
