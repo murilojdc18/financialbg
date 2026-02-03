@@ -1,4 +1,4 @@
-import { Calculator, Users, FileText, Receipt } from "lucide-react";
+import { Calculator, Users, FileText, Receipt, LayoutDashboard } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import {
@@ -14,6 +14,12 @@ import {
 } from "@/components/ui/sidebar";
 
 const navigationItems = [
+  {
+    title: "Dashboard",
+    url: "/dashboard",
+    icon: LayoutDashboard,
+    description: "Visão geral",
+  },
   {
     title: "Simulador",
     url: "/simulador-emprestimo",
