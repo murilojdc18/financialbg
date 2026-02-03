@@ -139,9 +139,18 @@ Deno.serve(async (req) => {
       // Continue - don't block user due to logging issues
     }
 
-    // Helper for consistent timing delays on all error paths
+    // Generate unique request ID for logging (avoids logging sensitive data)
+    const requestId = crypto.randomUUID().slice(0, 8);
+    
+    // Fixed timing delay for ALL validation paths to prevent enumeration
+    const FIXED_DELAY_MS = 800;
+    const startTime = Date.now();
+    
+    // Helper for consistent timing delays on ALL error paths
     const delayedError = async (message: string) => {
-      await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 500));
+      const elapsed = Date.now() - startTime;
+      const remainingDelay = Math.max(FIXED_DELAY_MS - elapsed, 0) + Math.random() * 200;
+      await new Promise(resolve => setTimeout(resolve, remainingDelay));
       return genericErrorResponse(corsHeaders, message);
     };
 
@@ -154,7 +163,7 @@ Deno.serve(async (req) => {
       cpf = body.cpf;
       secondFactor = body.secondFactor;
     } catch (parseError) {
-      console.error("Invalid JSON body");
+      console.error(`[${requestId}] Invalid JSON body`);
       return delayedError("Requisição inválida");
     }
 
@@ -169,31 +178,36 @@ Deno.serve(async (req) => {
     const normalizedCpf = normalizeDocument(cpf);
     
     // Validação básica de CPF (11 dígitos) ou CNPJ (14 dígitos)
-    if (normalizedCpf.length !== 11 && normalizedCpf.length !== 14) {
-      return delayedError("Documento inválido");
-    }
+    // Note: we always query the DB regardless of format to prevent timing leakage
+    const isValidFormat = normalizedCpf.length === 11 || normalizedCpf.length === 14;
 
-    console.log("Processing claim for document (masked):", normalizedCpf.substring(0, 3) + "***");
+    console.log(`[${requestId}] Processing claim request`);
 
-    // 6. Buscar cliente pelo documento normalizado
+    // 6. Always query the database to ensure consistent timing
+    // Query even for invalid formats to prevent timing-based format detection
     const { data: client, error: clientError } = await supabaseAdmin
       .from("clients")
       .select("id, name, portal_user_id, phone")
-      .eq("document_normalized", normalizedCpf)
+      .eq("document_normalized", isValidFormat ? normalizedCpf : "INVALID_FORMAT_QUERY")
       .maybeSingle();
 
     if (clientError) {
-      console.error("Client lookup error:", clientError);
+      console.error(`[${requestId}] Client lookup error:`, clientError.code);
       return delayedError("Não foi possível processar a solicitação");
+    }
+
+    // Return format error after DB query to maintain consistent timing
+    if (!isValidFormat) {
+      return delayedError("Documento inválido");
     }
 
     // Resposta genérica se não encontrar (não revelar se CPF existe)
     if (!client) {
-      console.log("Client not found for document");
+      console.log(`[${requestId}] Validation failed`);
       return delayedError("Dados não conferem. Verifique as informações.");
     }
 
-    console.log("Client found:", client.id, "phone:", client.phone ? "***" + client.phone.slice(-4) : "none");
+    console.log(`[${requestId}] Client found`);
 
     // 7. Validar segundo fator
     // Regra: comparar com os últimos 4 dígitos do telefone
@@ -203,13 +217,13 @@ Deno.serve(async (req) => {
     const isSecondFactorValid = phoneDigits.length >= 4 && secondFactorNormalized === phoneDigits;
 
     if (!isSecondFactorValid) {
-      console.log("Second factor validation failed");
+      console.log(`[${requestId}] Validation failed`);
       return delayedError("Dados não conferem. Verifique as informações.");
     }
 
     // 8. Verificar se já está vinculado a outro usuário
     if (client.portal_user_id && client.portal_user_id !== userId) {
-      console.log("Client already linked to another user");
+      console.log(`[${requestId}] Client already linked to another user`);
       return genericErrorResponse(corsHeaders, "Este cadastro já está vinculado a outro usuário.");
     }
 
@@ -221,12 +235,12 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     if (existingProfile?.client_id && existingProfile.client_id !== client.id) {
-      console.log("User already linked to another client");
+      console.log(`[${requestId}] User already linked to another client`);
       return genericErrorResponse(corsHeaders, "Sua conta já está vinculada a outro cadastro.");
     }
 
     // 10. Realizar vinculação
-    console.log("Linking user", userId, "to client", client.id);
+    console.log(`[${requestId}] Linking user to client`);
 
     // Atualizar clients.portal_user_id
     const { error: updateClientError } = await supabaseAdmin
@@ -235,7 +249,7 @@ Deno.serve(async (req) => {
       .eq("id", client.id);
 
     if (updateClientError) {
-      console.error("Error updating client:", updateClientError);
+      console.error(`[${requestId}] Error updating client:`, updateClientError.code);
       return genericErrorResponse(corsHeaders, "Erro ao processar vinculação.");
     }
 
@@ -251,7 +265,7 @@ Deno.serve(async (req) => {
       });
 
     if (upsertProfileError) {
-      console.error("Error upserting profile:", upsertProfileError);
+      console.error(`[${requestId}] Error upserting profile:`, upsertProfileError.code);
       // Rollback: remover portal_user_id do client
       await supabaseAdmin
         .from("clients")
@@ -272,7 +286,7 @@ Deno.serve(async (req) => {
       });
 
     if (roleError) {
-      console.error("Error upserting user_role:", roleError);
+      console.error(`[${requestId}] Error upserting user_role:`, roleError.code);
       // Não falha a operação por isso
     }
 
@@ -280,10 +294,10 @@ Deno.serve(async (req) => {
     try {
       await supabaseAdmin.rpc("cleanup_old_claim_attempts");
     } catch (cleanupError) {
-      console.log("Cleanup skipped:", cleanupError);
+      // Cleanup is best-effort, don't log details
     }
 
-    console.log("Claim successful for client:", client.id);
+    console.log(`[${requestId}] Claim successful`);
 
     return new Response(
       JSON.stringify({
