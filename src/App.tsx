@@ -13,6 +13,7 @@ import Clientes from "./pages/Clientes";
 import Operacoes from "./pages/Operacoes";
 import OperacaoDetalhes from "./pages/OperacaoDetalhes";
 import ContasAReceber from "./pages/ContasAReceber";
+import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import NotFound from "./pages/NotFound";
@@ -33,9 +34,19 @@ const App = () => (
       <BrowserRouter>
         <AuthProvider>
           <Routes>
-            <Route path="/" element={<Navigate to="/simulador-emprestimo" replace />} />
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
+            <Route
+              path="/dashboard"
+              element={
+                <ProtectedRoute>
+                  <AppLayout>
+                    <Dashboard />
+                  </AppLayout>
+                </ProtectedRoute>
+              }
+            />
             <Route
               path="/simulador-emprestimo"
               element={
