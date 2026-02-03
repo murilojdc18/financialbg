@@ -86,6 +86,15 @@ export interface DbPayment {
   notes: string | null;
   note: string | null;
   created_at: string;
+  // Campos de alocação flexível
+  amount_total: number;
+  alloc_penalty: number;
+  alloc_interest: number;
+  alloc_principal: number;
+  // Campos de desconto/isenção
+  discount_penalty: number;
+  discount_interest: number;
+  discount_principal: number;
   // Campos de correção (soft-void)
   is_voided: boolean;
   void_reason: string | null;

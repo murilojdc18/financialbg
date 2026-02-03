@@ -138,7 +138,7 @@ export function useFlexiblePayment() {
 
       const isPaidInFull = newStatus === 'PAGO';
 
-      // 1. Inserir registro de pagamento
+      // 1. Inserir registro de pagamento com alocação
       const { error: paymentError } = await supabase
         .from('payments')
         .insert({
@@ -146,6 +146,10 @@ export function useFlexiblePayment() {
           client_id: receivable.client_id,
           operation_id: receivable.operation_id,
           amount,
+          amount_total: amount,
+          alloc_penalty: allocation.allocatedToPenalty,
+          alloc_interest: allocation.allocatedToInterest,
+          alloc_principal: allocation.allocatedToPrincipal,
           paid_at: paymentDate.toISOString(),
           method: paymentMethod,
           note: note || null,

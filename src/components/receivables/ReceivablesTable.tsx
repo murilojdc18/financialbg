@@ -22,7 +22,7 @@ import { calculateReceivableDue, LateFeeConfig } from "@/lib/receivable-calculat
 import { format, parseISO } from "date-fns";
 import { useNavigate } from "react-router-dom";
 import { StatusBadge } from "@/components/StatusBadge";
-import { ReceivableForPayment } from "@/hooks/useFlexiblePayment";
+import { ReceivableForPayment } from "@/hooks/useFlexiblePaymentV2";
 import { FlexiblePaymentDialog } from "./FlexiblePaymentDialog";
 import { PaymentsHistoryDrawer } from "./PaymentsHistoryDrawer";
 import { useQueryClient } from "@tanstack/react-query";
