@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -20,12 +21,14 @@ import {
   Shield,
   Loader2,
   Wallet,
+  Trash2,
 } from "lucide-react";
 import { useOperation } from "@/hooks/useOperations";
 import { formatCurrency, formatPercent, calculateLoan } from "@/lib/loan-calculator";
 import { InstallmentScheduleTable } from "@/components/simulator/InstallmentScheduleTable";
 import { ReceivablesSection } from "@/components/operations/ReceivablesSection";
 import { StatusSelect } from "@/components/operations/StatusSelect";
+import { DeleteOperationDialog } from "@/components/operations/DeleteOperationDialog";
 import { format, parseISO } from "date-fns";
 
 
@@ -33,6 +36,7 @@ export default function OperacaoDetalhes() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data: operation, isLoading, error } = useOperation(id || "");
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   if (isLoading) {
     return (
@@ -80,11 +84,20 @@ export default function OperacaoDetalhes() {
       description="Detalhes completos da operação de empréstimo"
     >
       <div className="space-y-6">
-        {/* Back button */}
-        <Button variant="outline" onClick={() => navigate("/operacoes")}>
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Voltar
-        </Button>
+        {/* Back button and Delete button */}
+        <div className="flex items-center justify-between">
+          <Button variant="outline" onClick={() => navigate("/operacoes")}>
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Voltar
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => setDeleteDialogOpen(true)}
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Excluir operação
+          </Button>
+        </div>
 
         {/* Client and Operation Info - Two Column Layout */}
         <div className="grid gap-6 lg:grid-cols-2">
@@ -327,6 +340,15 @@ export default function OperacaoDetalhes() {
 
         {/* Cronograma Simulado (para referência) */}
         <InstallmentScheduleTable result={loanResult} />
+
+        {/* Delete Operation Dialog */}
+        <DeleteOperationDialog
+          open={deleteDialogOpen}
+          onOpenChange={setDeleteDialogOpen}
+          operationId={operation.id}
+          clientName={client?.name}
+          onSuccess={() => navigate("/operacoes")}
+        />
       </div>
     </PageContainer>
   );

@@ -1,4 +1,5 @@
-import { Eye } from "lucide-react";
+import { useState } from "react";
+import { Eye, Trash2, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -9,11 +10,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { DbOperationWithClient } from "@/types/database";
 import { formatCurrency, formatPercent } from "@/lib/loan-calculator";
 import { format, parseISO } from "date-fns";
 import { useNavigate } from "react-router-dom";
 import { StatusSelect } from "./StatusSelect";
+import { DeleteOperationDialog } from "./DeleteOperationDialog";
 
 interface OperationsTableProps {
   operations: DbOperationWithClient[];
@@ -27,30 +36,44 @@ const systemLabels: Record<string, string> = {
 
 export function OperationsTable({ operations }: OperationsTableProps) {
   const navigate = useNavigate();
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [selectedOperation, setSelectedOperation] = useState<{
+    id: string;
+    clientName?: string;
+  } | null>(null);
 
   const handleViewDetails = (operationId: string) => {
     navigate(`/operacoes/${operationId}`);
   };
 
+  const handleDeleteClick = (operation: DbOperationWithClient) => {
+    setSelectedOperation({
+      id: operation.id,
+      clientName: operation.clients?.name,
+    });
+    setDeleteDialogOpen(true);
+  };
+
   return (
-    <div className="rounded-md border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-[100px]">ID</TableHead>
-            <TableHead>Cliente</TableHead>
-            <TableHead className="text-center">Caixa</TableHead>
-            <TableHead className="text-right">Valor</TableHead>
-            <TableHead className="text-right">Taxa</TableHead>
-            <TableHead className="text-center">Prazo</TableHead>
-            <TableHead className="text-center">Sistema</TableHead>
-            <TableHead className="text-center">Status</TableHead>
-            <TableHead>Criada em</TableHead>
-            <TableHead className="text-right">Ações</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {operations.map((operation) => (
+    <>
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[100px]">ID</TableHead>
+              <TableHead>Cliente</TableHead>
+              <TableHead className="text-center">Caixa</TableHead>
+              <TableHead className="text-right">Valor</TableHead>
+              <TableHead className="text-right">Taxa</TableHead>
+              <TableHead className="text-center">Prazo</TableHead>
+              <TableHead className="text-center">Sistema</TableHead>
+              <TableHead className="text-center">Status</TableHead>
+              <TableHead>Criada em</TableHead>
+              <TableHead className="text-right">Ações</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {operations.map((operation) => (
               <TableRow key={operation.id}>
                 <TableCell className="font-mono text-sm">
                   {operation.id.slice(0, 8)}
@@ -86,19 +109,42 @@ export function OperationsTable({ operations }: OperationsTableProps) {
                   {format(parseISO(operation.created_at), "dd/MM/yyyy")}
                 </TableCell>
                 <TableCell className="text-right">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleViewDetails(operation.id)}
-                  >
-                    <Eye className="h-4 w-4 mr-1" />
-                    Ver detalhes
-                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon">
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => handleViewDetails(operation.id)}>
+                        <Eye className="h-4 w-4 mr-2" />
+                        Ver detalhes
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onClick={() => handleDeleteClick(operation)}
+                        className="text-destructive focus:text-destructive"
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Excluir
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </TableCell>
               </TableRow>
             ))}
-        </TableBody>
-      </Table>
-    </div>
+          </TableBody>
+        </Table>
+      </div>
+
+      {selectedOperation && (
+        <DeleteOperationDialog
+          open={deleteDialogOpen}
+          onOpenChange={setDeleteDialogOpen}
+          operationId={selectedOperation.id}
+          clientName={selectedOperation.clientName}
+        />
+      )}
+    </>
   );
 }
