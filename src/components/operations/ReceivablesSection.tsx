@@ -20,7 +20,7 @@ import { format, parseISO, isBefore, startOfDay } from "date-fns";
 import { formatCurrency } from "@/lib/loan-calculator";
 import { calculateReceivableDue, LateFeeConfig, ReceivableDueResult } from "@/lib/receivable-calculator";
 import { useReceivablesByOperation } from "@/hooks/useReceivables";
-import { ReceivableForPayment } from "@/hooks/useFlexiblePayment";
+import { ReceivableForPayment } from "@/hooks/useFlexiblePaymentV2";
 import { DbReceivable, ReceivableStatus } from "@/types/database";
 import { FlexiblePaymentDialog } from "@/components/receivables/FlexiblePaymentDialog";
 import { PaymentsHistoryDrawer } from "@/components/receivables/PaymentsHistoryDrawer";

@@ -117,8 +117,13 @@ export function useMarkAsPaid() {
         .from('payments')
         .insert({
           receivable_id: id,
-          owner_id: user.id,
+          client_id: receivable.client_id,
+          operation_id: receivable.operation_id,
           amount,
+          amount_total: amount,
+          alloc_principal: amount,
+          alloc_penalty: 0,
+          alloc_interest: 0,
           paid_at,
           method: payment_method,
           notes
