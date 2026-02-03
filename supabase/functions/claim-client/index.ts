@@ -122,7 +122,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 4. Log this attempt (before processing to count all attempts)
+    // 4. Log this attempt FIRST (before any validation to prevent timing enumeration)
     const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || 
                      req.headers.get("x-real-ip") || 
                      "unknown";
@@ -139,23 +139,38 @@ Deno.serve(async (req) => {
       // Continue - don't block user due to logging issues
     }
 
-    // 5. Parse e validação do body
-    const body = await req.json();
-    const { cpf, secondFactor } = body;
+    // Helper for consistent timing delays on all error paths
+    const delayedError = async (message: string) => {
+      await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 500));
+      return genericErrorResponse(corsHeaders, message);
+    };
+
+    // 5. Parse e validação do body with proper error handling
+    let cpf: string;
+    let secondFactor: string;
+    
+    try {
+      const body = await req.json();
+      cpf = body.cpf;
+      secondFactor = body.secondFactor;
+    } catch (parseError) {
+      console.error("Invalid JSON body");
+      return delayedError("Requisição inválida");
+    }
 
     if (!cpf || typeof cpf !== "string") {
-      return genericErrorResponse(corsHeaders, "CPF é obrigatório");
+      return delayedError("CPF é obrigatório");
     }
 
     if (!secondFactor || typeof secondFactor !== "string") {
-      return genericErrorResponse(corsHeaders, "Segundo fator de validação é obrigatório");
+      return delayedError("Segundo fator de validação é obrigatório");
     }
 
     const normalizedCpf = normalizeDocument(cpf);
     
     // Validação básica de CPF (11 dígitos) ou CNPJ (14 dígitos)
     if (normalizedCpf.length !== 11 && normalizedCpf.length !== 14) {
-      return genericErrorResponse(corsHeaders, "Documento inválido");
+      return delayedError("Documento inválido");
     }
 
     console.log("Processing claim for document (masked):", normalizedCpf.substring(0, 3) + "***");
@@ -169,15 +184,13 @@ Deno.serve(async (req) => {
 
     if (clientError) {
       console.error("Client lookup error:", clientError);
-      return genericErrorResponse(corsHeaders);
+      return delayedError("Não foi possível processar a solicitação");
     }
 
     // Resposta genérica se não encontrar (não revelar se CPF existe)
     if (!client) {
       console.log("Client not found for document");
-      // Delay artificial para dificultar timing attacks
-      await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 500));
-      return genericErrorResponse(corsHeaders, "Dados não conferem. Verifique as informações.");
+      return delayedError("Dados não conferem. Verifique as informações.");
     }
 
     console.log("Client found:", client.id, "phone:", client.phone ? "***" + client.phone.slice(-4) : "none");
@@ -191,8 +204,7 @@ Deno.serve(async (req) => {
 
     if (!isSecondFactorValid) {
       console.log("Second factor validation failed");
-      await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 500));
-      return genericErrorResponse(corsHeaders, "Dados não conferem. Verifique as informações.");
+      return delayedError("Dados não conferem. Verifique as informações.");
     }
 
     // 8. Verificar se já está vinculado a outro usuário
