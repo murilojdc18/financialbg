@@ -198,9 +198,16 @@ export type Database = {
       }
       payments: {
         Row: {
+          alloc_interest: number | null
+          alloc_penalty: number | null
+          alloc_principal: number | null
           amount: number
+          amount_total: number
           client_id: string | null
           created_at: string | null
+          discount_interest: number | null
+          discount_penalty: number | null
+          discount_principal: number | null
           id: string
           is_voided: boolean | null
           method: Database["public"]["Enums"]["payment_method"]
@@ -216,9 +223,16 @@ export type Database = {
           voided_by: string | null
         }
         Insert: {
+          alloc_interest?: number | null
+          alloc_penalty?: number | null
+          alloc_principal?: number | null
           amount: number
+          amount_total: number
           client_id?: string | null
           created_at?: string | null
+          discount_interest?: number | null
+          discount_penalty?: number | null
+          discount_principal?: number | null
           id?: string
           is_voided?: boolean | null
           method: Database["public"]["Enums"]["payment_method"]
@@ -234,9 +248,16 @@ export type Database = {
           voided_by?: string | null
         }
         Update: {
+          alloc_interest?: number | null
+          alloc_penalty?: number | null
+          alloc_principal?: number | null
           amount?: number
+          amount_total?: number
           client_id?: string | null
           created_at?: string | null
+          discount_interest?: number | null
+          discount_penalty?: number | null
+          discount_principal?: number | null
           id?: string
           is_voided?: boolean | null
           method?: Database["public"]["Enums"]["payment_method"]
@@ -701,7 +722,12 @@ export type Database = {
         | "DINHEIRO"
         | "CARTAO"
         | "OUTRO"
-      receivable_status: "EM_ABERTO" | "PAGO" | "ATRASADO" | "PARCIAL"
+      receivable_status:
+        | "EM_ABERTO"
+        | "PAGO"
+        | "ATRASADO"
+        | "PARCIAL"
+        | "RENEGOCIADA"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -840,7 +866,13 @@ export const Constants = {
         "CARTAO",
         "OUTRO",
       ],
-      receivable_status: ["EM_ABERTO", "PAGO", "ATRASADO", "PARCIAL"],
+      receivable_status: [
+        "EM_ABERTO",
+        "PAGO",
+        "ATRASADO",
+        "PARCIAL",
+        "RENEGOCIADA",
+      ],
     },
   },
 } as const
