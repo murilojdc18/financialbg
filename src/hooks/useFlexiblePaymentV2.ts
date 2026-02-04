@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import { addMonths } from 'date-fns';
 import { 
   calculateReceivableDue, 
   allocateDeferToComponents,
@@ -52,8 +53,7 @@ export interface FlexiblePaymentV2Input {
   };
   defer?: {
     amount: number;
-    days?: number;
-    toDate?: Date;
+    toDate: Date;
   };
 }
 
@@ -174,7 +174,7 @@ export function useFlexiblePaymentV2() {
 
       if (updateError) throw updateError;
 
-      // 3. Postergar saldo se solicitado
+      // 3. Reemitir saldo se solicitado (criar nova parcela como N+1)
       let newReceivableId: string | null = null;
       
       if (defer && defer.amount > 0.01 && !isPaidInFull) {
@@ -186,34 +186,51 @@ export function useFlexiblePaymentV2() {
           principalRemaining
         );
         
-        // Calcular nova data de vencimento
-        let newDueDate: Date;
-        if (defer.toDate) {
-          newDueDate = defer.toDate;
-        } else {
-          const days = defer.days || 30;
-          newDueDate = new Date(paymentDate);
-          newDueDate.setDate(newDueDate.getDate() + days);
+        // Data de vencimento da nova parcela (vem do DatePicker)
+        const newDueDate = defer.toDate;
+        
+        // Número da nova parcela = N+1 (próxima após a atual)
+        const currentN = receivable.installment_number;
+        const newInstallmentNumber = currentN + 1;
+
+        // ====== SHIFT FUTURE INSTALLMENTS ======
+        // Step 1: Fetch all future installments (>= N+1)
+        const { data: futureInstallments, error: fetchError } = await supabase
+          .from('receivables')
+          .select('id, installment_number, due_date')
+          .eq('operation_id', receivable.operation_id)
+          .gte('installment_number', newInstallmentNumber)
+          .order('installment_number', { ascending: false }); // DESC order to avoid conflicts
+        
+        if (fetchError) throw fetchError;
+
+        // Step 2: Shift each future installment (+1 to number, +1 month to due_date)
+        // Process in descending order to avoid unique constraint conflicts
+        if (futureInstallments && futureInstallments.length > 0) {
+          for (const installment of futureInstallments) {
+            const newNumber = installment.installment_number + 1;
+            const currentDueDate = new Date(installment.due_date);
+            const shiftedDueDate = addMonths(currentDueDate, 1);
+            
+            const { error: shiftError } = await supabase
+              .from('receivables')
+              .update({
+                installment_number: newNumber,
+                due_date: shiftedDueDate.toISOString().split('T')[0],
+              })
+              .eq('id', installment.id);
+            
+            if (shiftError) throw shiftError;
+          }
         }
 
-        // Buscar próximo número de parcela
-        const { data: maxInstallment } = await supabase
-          .from('receivables')
-          .select('installment_number')
-          .eq('operation_id', receivable.operation_id)
-          .order('installment_number', { ascending: false })
-          .limit(1)
-          .single();
-
-        const nextInstallmentNumber = (maxInstallment?.installment_number ?? 0) + 1;
-
-        // Criar nova parcela com encargos carregados
+        // Step 3: Insert new installment as N+1
         const { data: newReceivable, error: insertError } = await supabase
           .from('receivables')
           .insert({
             operation_id: receivable.operation_id,
             client_id: receivable.client_id,
-            installment_number: nextInstallmentNumber,
+            installment_number: newInstallmentNumber,
             due_date: newDueDate.toISOString().split('T')[0],
             amount: deferAllocation.carriedPrincipal,
             status: 'EM_ABERTO' as ReceivableStatus,
@@ -232,12 +249,11 @@ export function useFlexiblePaymentV2() {
         
         newReceivableId = newReceivable?.id ?? null;
 
-        // Determinar status da parcela original
+        // Step 4: Update original installment status
         const saldoQueFica = totalRemaining - defer.amount;
-        const originalStatus: ReceivableStatus = saldoQueFica <= 0.01 ? 'PAGO' : 'PARCIAL';
+        const originalStatus: ReceivableStatus = saldoQueFica <= 0.01 ? 'RENEGOCIADA' : 'PARCIAL';
 
-        // Atualizar parcela original
-        const renegotiationNote = `Saldo postergado: Principal R$ ${deferAllocation.carriedPrincipal.toFixed(2)} + Multa R$ ${deferAllocation.carriedPenalty.toFixed(2)} + Juros R$ ${deferAllocation.carriedInterest.toFixed(2)} → Parcela ${nextInstallmentNumber}`;
+        const renegotiationNote = `Parcela reemitida para ${newInstallmentNumber} (${newDueDate.toISOString().split('T')[0]}): Principal R$ ${deferAllocation.carriedPrincipal.toFixed(2)} + Multa R$ ${deferAllocation.carriedPenalty.toFixed(2)} + Juros R$ ${deferAllocation.carriedInterest.toFixed(2)}`;
         
         const originalUpdate: Record<string, unknown> = {
           renegotiated_to_receivable_id: newReceivableId,
@@ -248,7 +264,7 @@ export function useFlexiblePaymentV2() {
           status: originalStatus,
         };
 
-        if (originalStatus === 'PAGO') {
+        if (originalStatus === 'RENEGOCIADA') {
           originalUpdate.paid_at = paymentDate.toISOString();
         }
 

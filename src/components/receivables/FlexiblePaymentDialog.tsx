@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { format, addDays } from "date-fns";
+import { format, addDays, addMonths, differenceInDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { CalendarIcon, Loader2, Info, ArrowRight, Wand2, ChevronDown, ChevronUp } from "lucide-react";
 import {
@@ -79,10 +79,10 @@ const formSchema = z.object({
   discountPenalty: z.number().min(0).default(0),
   discountInterest: z.number().min(0).default(0),
   discountPrincipal: z.number().min(0).default(0),
-  // Postergar
+  // Postergar/Reemitir
   deferOption: z.enum(["keep", "defer"]).default("keep"),
   deferDays: z.number().min(1).max(365).default(30),
-  deferToDate: z.date().optional(),
+  deferToDate: z.date({ required_error: "Data de vencimento é obrigatória" }),
   customDeferAmount: z.number().min(0).default(0),
 });
 
@@ -120,6 +120,7 @@ export function FlexiblePaymentDialog({
       discountPrincipal: 0,
       deferOption: "keep",
       deferDays: 30,
+      deferToDate: addDays(new Date(), 30),
       customDeferAmount: 0,
     },
   });
@@ -134,6 +135,7 @@ export function FlexiblePaymentDialog({
   const watchDiscountPrincipal = form.watch("discountPrincipal");
   const watchDeferOption = form.watch("deferOption");
   const watchDeferDays = form.watch("deferDays");
+  const watchDeferToDate = form.watch("deferToDate");
   const watchCustomDeferAmount = form.watch("customDeferAmount");
 
   // Calcular encargos quando o dialog abre ou data muda
@@ -261,6 +263,22 @@ export function FlexiblePaymentDialog({
 
   const canSubmit = validationErrors.length === 0 && (watchAmountTotal || 0) > 0;
 
+  // Sync deferDays -> deferToDate when days change
+  useEffect(() => {
+    const paymentDate = watchPaidAt ?? new Date();
+    const newDate = addDays(paymentDate, watchDeferDays || 30);
+    const currentDeferDate = form.getValues("deferToDate");
+    
+    // Only update if the days field was likely the source of the change
+    const expectedFromDays = addDays(paymentDate, watchDeferDays || 30);
+    const daysFromCurrentDate = currentDeferDate ? differenceInDays(currentDeferDate, paymentDate) : 30;
+    
+    // If the current date doesn't match what the days field expects, sync
+    if (!currentDeferDate || Math.abs(daysFromCurrentDate - (watchDeferDays || 30)) > 0) {
+      form.setValue("deferToDate", newDate);
+    }
+  }, [watchDeferDays, watchPaidAt]);
+
   const handleSubmit = async (values: FormValues) => {
     if (!receivable || !canSubmit) return;
 
@@ -282,7 +300,6 @@ export function FlexiblePaymentDialog({
       },
       defer: values.deferOption === "defer" ? {
         amount: values.customDeferAmount,
-        days: values.deferDays,
         toDate: values.deferToDate,
       } : undefined,
       receivable,
@@ -699,6 +716,20 @@ export function FlexiblePaymentDialog({
 
                     {watchDeferOption === "defer" && (
                       <div className="space-y-4 pt-3 border-t">
+                        {/* Info box explaining N+1 behavior */}
+                        <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-sm space-y-1">
+                          <p className="font-medium text-primary flex items-center gap-1">
+                            <Info className="h-4 w-4" />
+                            Parcela será criada como PRÓXIMA (N+1)
+                          </p>
+                          <p className="text-muted-foreground text-xs">
+                            • A nova parcela será inserida como <strong>parcela {receivable.installment_number + 1}</strong>
+                          </p>
+                          <p className="text-muted-foreground text-xs">
+                            • Todas as parcelas futuras serão renumeradas (+1) e terão vencimento empurrado em 1 mês
+                          </p>
+                        </div>
+
                         {/* Valor a postergar */}
                         <FormField
                           control={form.control}
@@ -706,7 +737,7 @@ export function FlexiblePaymentDialog({
                           render={({ field }) => (
                             <FormItem>
                               <div className="flex items-center justify-between">
-                                <FormLabel className="text-sm">Valor a postergar (R$)</FormLabel>
+                                <FormLabel className="text-sm">Valor a reemitir (R$)</FormLabel>
                                 <Button
                                   type="button"
                                   variant="ghost"
@@ -736,7 +767,7 @@ export function FlexiblePaymentDialog({
                         {/* Preview da alocação */}
                         {deferAllocationPreview && (watchCustomDeferAmount || 0) > 0 && (
                           <div className="rounded-md border bg-background p-3 text-sm space-y-2">
-                            <p className="font-medium text-muted-foreground">Nova parcela receberá:</p>
+                            <p className="font-medium text-muted-foreground">Nova parcela {receivable.installment_number + 1} receberá:</p>
                             <div className="space-y-1">
                               {deferAllocationPreview.carriedPrincipal > 0 && (
                                 <div className="flex justify-between">
@@ -774,13 +805,60 @@ export function FlexiblePaymentDialog({
                           </div>
                         )}
 
-                        {/* Dias para nova parcela */}
+                        {/* DatePicker for new installment due date */}
+                        <FormField
+                          control={form.control}
+                          name="deferToDate"
+                          render={({ field }) => (
+                            <FormItem className="flex flex-col">
+                              <FormLabel className="text-sm">Vencimento da nova parcela *</FormLabel>
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <FormControl>
+                                    <Button
+                                      variant="outline"
+                                      className={cn(
+                                        "w-full pl-3 text-left font-normal",
+                                        !field.value && "text-muted-foreground"
+                                      )}
+                                    >
+                                      {field.value ? format(field.value, "dd/MM/yyyy") : "Selecione"}
+                                      <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                    </Button>
+                                  </FormControl>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0" align="start">
+                                  <Calendar
+                                    mode="single"
+                                    selected={field.value}
+                                    onSelect={(date) => {
+                                      field.onChange(date);
+                                      // Update days field to reflect the new date
+                                      if (date && watchPaidAt) {
+                                        const days = differenceInDays(date, watchPaidAt);
+                                        if (days > 0 && days <= 365) {
+                                          form.setValue("deferDays", days);
+                                        }
+                                      }
+                                    }}
+                                    disabled={(date) => date < (watchPaidAt ?? new Date())}
+                                    locale={ptBR}
+                                    className="pointer-events-auto"
+                                  />
+                                </PopoverContent>
+                              </Popover>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        {/* Dias como atalho opcional */}
                         <FormField
                           control={form.control}
                           name="deferDays"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-sm">Dias para nova parcela</FormLabel>
+                              <FormLabel className="text-sm text-muted-foreground">Atalho: Dias a partir do pagamento</FormLabel>
                               <FormControl>
                                 <Input
                                   type="number"
@@ -788,12 +866,18 @@ export function FlexiblePaymentDialog({
                                   max="365"
                                   className="h-8"
                                   {...field}
-                                  onChange={(e) => field.onChange(parseInt(e.target.value) || 30)}
+                                  onChange={(e) => {
+                                    const days = parseInt(e.target.value) || 30;
+                                    field.onChange(days);
+                                    // Update deferToDate when days change
+                                    const paymentDate = watchPaidAt ?? new Date();
+                                    form.setValue("deferToDate", addDays(paymentDate, days));
+                                  }}
                                 />
                               </FormControl>
                               <FormDescription className="flex items-center gap-1 text-xs">
                                 <ArrowRight className="h-3 w-3" />
-                                Vencimento: {format(addDays(watchPaidAt ?? new Date(), watchDeferDays || 30), "dd/MM/yyyy")}
+                                Vencimento calculado: {format(watchDeferToDate ?? addDays(watchPaidAt ?? new Date(), watchDeferDays || 30), "dd/MM/yyyy")}
                               </FormDescription>
                             </FormItem>
                           )}

@@ -1,7 +1,7 @@
 // Enums do banco de dados
 export type OperationSystem = 'PRICE' | 'SAC';
 export type OperationStatus = 'ATIVA' | 'QUITADA' | 'CANCELADA';
-export type ReceivableStatus = 'EM_ABERTO' | 'PAGO' | 'ATRASADO' | 'PARCIAL';
+export type ReceivableStatus = 'EM_ABERTO' | 'PAGO' | 'ATRASADO' | 'PARCIAL' | 'RENEGOCIADA';
 export type PaymentMethod = 'PIX' | 'BOLETO' | 'TRANSFERENCIA' | 'DINHEIRO' | 'CARTAO' | 'OUTRO';
 
 // Tipos das tabelas
