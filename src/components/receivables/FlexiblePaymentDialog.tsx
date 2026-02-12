@@ -61,10 +61,15 @@ import {
   ReceivableDueResult,
   DeferPriority,
 } from "@/lib/receivable-calculator";
+import { 
+  getContractInterestForInstallment, 
+  splitPrincipalIntoComponents,
+  ContractInterestBreakdown,
+} from "@/lib/contract-interest-calculator";
 import { PaymentMethod } from "@/types/database";
 import { ReceivableForPayment, useFlexiblePaymentV2 } from "@/hooks/useFlexiblePaymentV2";
 
-// Schema com validação
+// Schema com validação — 4 campos de alocação
 const formSchema = z.object({
   amountTotal: z.number({ required_error: "Valor é obrigatório" }).min(0, "Valor deve ser >= 0"),
   paidAt: z.date({ required_error: "Data de pagamento é obrigatória" }),
@@ -72,13 +77,15 @@ const formSchema = z.object({
     required_error: "Selecione um método de pagamento",
   }),
   note: z.string().max(500).optional(),
-  // Alocação
+  // Alocação — 4 componentes
   allocPenalty: z.number().min(0).default(0),
-  allocInterest: z.number().min(0).default(0),
+  allocLateInterest: z.number().min(0).default(0),
+  allocContractInterest: z.number().min(0).default(0),
   allocPrincipal: z.number().min(0).default(0),
-  // Descontos
+  // Descontos — 4 componentes
   discountPenalty: z.number().min(0).default(0),
-  discountInterest: z.number().min(0).default(0),
+  discountLateInterest: z.number().min(0).default(0),
+  discountContractInterest: z.number().min(0).default(0),
   discountPrincipal: z.number().min(0).default(0),
   // Postergar/Reemitir
   deferOption: z.enum(["keep", "defer"]).default("keep"),
@@ -97,6 +104,15 @@ interface FlexiblePaymentDialogProps {
   onSuccess?: () => void;
 }
 
+/** 4-component due breakdown */
+interface FourComponentDue {
+  contractInterest: number;
+  lateInterest: number;
+  penalty: number;
+  amortization: number;
+  total: number;
+}
+
 export function FlexiblePaymentDialog({
   open,
   onOpenChange,
@@ -105,6 +121,7 @@ export function FlexiblePaymentDialog({
 }: FlexiblePaymentDialogProps) {
   const flexiblePayment = useFlexiblePaymentV2();
   const [dueResult, setDueResult] = useState<ReceivableDueResult | null>(null);
+  const [scheduleBreakdown, setScheduleBreakdown] = useState<ContractInterestBreakdown | null>(null);
   const [discountsOpen, setDiscountsOpen] = useState(false);
   
   const form = useForm<FormValues>({
@@ -115,10 +132,12 @@ export function FlexiblePaymentDialog({
       paymentMethod: "PIX",
       note: "",
       allocPenalty: 0,
-      allocInterest: 0,
+      allocLateInterest: 0,
+      allocContractInterest: 0,
       allocPrincipal: 0,
       discountPenalty: 0,
-      discountInterest: 0,
+      discountLateInterest: 0,
+      discountContractInterest: 0,
       discountPrincipal: 0,
       deferOption: "keep",
       deferDays: 30,
@@ -131,16 +150,41 @@ export function FlexiblePaymentDialog({
   const watchAmountTotal = form.watch("amountTotal");
   const watchPaidAt = form.watch("paidAt");
   const watchAllocPenalty = form.watch("allocPenalty");
-  const watchAllocInterest = form.watch("allocInterest");
+  const watchAllocLateInterest = form.watch("allocLateInterest");
+  const watchAllocContractInterest = form.watch("allocContractInterest");
   const watchAllocPrincipal = form.watch("allocPrincipal");
   const watchDiscountPenalty = form.watch("discountPenalty");
-  const watchDiscountInterest = form.watch("discountInterest");
+  const watchDiscountLateInterest = form.watch("discountLateInterest");
+  const watchDiscountContractInterest = form.watch("discountContractInterest");
   const watchDiscountPrincipal = form.watch("discountPrincipal");
   const watchDeferOption = form.watch("deferOption");
   const watchDeferDays = form.watch("deferDays");
   const watchDeferToDate = form.watch("deferToDate");
   const watchCustomDeferAmount = form.watch("customDeferAmount");
   const watchDeferPriority = form.watch("deferPriority");
+
+  // Calculate schedule breakdown for contract interest
+  useEffect(() => {
+    if (!receivable || !open) return;
+    const ops = receivable.operations;
+    if (ops.principal > 0 && ops.term_months > 0) {
+      const breakdown = getContractInterestForInstallment(
+        {
+          principal: ops.principal,
+          rate_monthly: ops.rate_monthly,
+          term_months: ops.term_months,
+          system: ops.system,
+          start_date: ops.start_date,
+          fee_fixed: ops.fee_fixed,
+          fee_insurance: ops.fee_insurance,
+        },
+        receivable.installment_number
+      );
+      setScheduleBreakdown(breakdown);
+    } else {
+      setScheduleBreakdown(null);
+    }
+  }, [receivable, open]);
 
   // Calcular encargos quando o dialog abre ou data muda
   useEffect(() => {
@@ -171,55 +215,79 @@ export function FlexiblePaymentDialog({
     setDueResult(result);
   }, [receivable, open, watchPaidAt]);
 
-  // Auto distribuir alocação
+  // 4-component due breakdown
+  const fourComponentDue = useMemo<FourComponentDue | null>(() => {
+    if (!dueResult) return null;
+    
+    // Split the "principal" from receivable-calculator into contract interest + amortization
+    const split = splitPrincipalIntoComponents(
+      dueResult.breakdown.principal,
+      scheduleBreakdown ?? { contractInterest: 0, amortization: 0, installmentTotal: 0 }
+    );
+
+    return {
+      contractInterest: split.contractInterestRemaining,
+      lateInterest: dueResult.breakdown.interest,
+      penalty: dueResult.breakdown.penalty,
+      amortization: split.amortizationRemaining,
+      total: dueResult.breakdown.total,
+    };
+  }, [dueResult, scheduleBreakdown]);
+
+  // Auto distribuir alocação — order: penalty -> late interest -> contract interest -> principal
   const handleAutoDistribute = useCallback(() => {
-    if (!dueResult) return;
+    if (!fourComponentDue) return;
     
     const amount = watchAmountTotal || 0;
     let remaining = amount;
     
-    // Ordem: multa -> juros -> principal
-    const penalty = Math.min(remaining, dueResult.breakdown.penalty);
+    const penalty = Math.min(remaining, fourComponentDue.penalty);
     remaining -= penalty;
     
-    const interest = Math.min(remaining, dueResult.breakdown.interest);
-    remaining -= interest;
+    const lateInterest = Math.min(remaining, fourComponentDue.lateInterest);
+    remaining -= lateInterest;
+
+    const contractInterest = Math.min(remaining, fourComponentDue.contractInterest);
+    remaining -= contractInterest;
     
-    const principal = Math.min(remaining, dueResult.breakdown.principal);
+    const principal = Math.min(remaining, fourComponentDue.amortization);
     
     form.setValue("allocPenalty", Math.round(penalty * 100) / 100);
-    form.setValue("allocInterest", Math.round(interest * 100) / 100);
+    form.setValue("allocLateInterest", Math.round(lateInterest * 100) / 100);
+    form.setValue("allocContractInterest", Math.round(contractInterest * 100) / 100);
     form.setValue("allocPrincipal", Math.round(principal * 100) / 100);
-  }, [dueResult, watchAmountTotal, form]);
+  }, [fourComponentDue, watchAmountTotal, form]);
 
   // Totais calculados
   const totalAllocated = useMemo(() => {
-    return (watchAllocPenalty || 0) + (watchAllocInterest || 0) + (watchAllocPrincipal || 0);
-  }, [watchAllocPenalty, watchAllocInterest, watchAllocPrincipal]);
+    return (watchAllocPenalty || 0) + (watchAllocLateInterest || 0) + (watchAllocContractInterest || 0) + (watchAllocPrincipal || 0);
+  }, [watchAllocPenalty, watchAllocLateInterest, watchAllocContractInterest, watchAllocPrincipal]);
 
   const allocationDifference = useMemo(() => {
     return Math.round(((watchAmountTotal || 0) - totalAllocated) * 100) / 100;
   }, [watchAmountTotal, totalAllocated]);
 
   const totalDiscount = useMemo(() => {
-    return (watchDiscountPenalty || 0) + (watchDiscountInterest || 0) + (watchDiscountPrincipal || 0);
-  }, [watchDiscountPenalty, watchDiscountInterest, watchDiscountPrincipal]);
+    return (watchDiscountPenalty || 0) + (watchDiscountLateInterest || 0) + (watchDiscountContractInterest || 0) + (watchDiscountPrincipal || 0);
+  }, [watchDiscountPenalty, watchDiscountLateInterest, watchDiscountContractInterest, watchDiscountPrincipal]);
 
-  // Saldo restante após pagamento + descontos (REAL-TIME)
+  // Saldo restante após pagamento + descontos (REAL-TIME) — 4 components
   const balanceBreakdown = useMemo(() => {
-    if (!dueResult) return { penalty: 0, interest: 0, principal: 0, total: 0 };
+    if (!fourComponentDue) return { penalty: 0, lateInterest: 0, contractInterest: 0, amortization: 0, total: 0 };
     
-    const penalty = Math.max(0, dueResult.breakdown.penalty - (watchAllocPenalty || 0) - (watchDiscountPenalty || 0));
-    const interest = Math.max(0, dueResult.breakdown.interest - (watchAllocInterest || 0) - (watchDiscountInterest || 0));
-    const principal = Math.max(0, dueResult.breakdown.principal - (watchAllocPrincipal || 0) - (watchDiscountPrincipal || 0));
+    const penalty = Math.max(0, fourComponentDue.penalty - (watchAllocPenalty || 0) - (watchDiscountPenalty || 0));
+    const lateInterest = Math.max(0, fourComponentDue.lateInterest - (watchAllocLateInterest || 0) - (watchDiscountLateInterest || 0));
+    const contractInterest = Math.max(0, fourComponentDue.contractInterest - (watchAllocContractInterest || 0) - (watchDiscountContractInterest || 0));
+    const amortization = Math.max(0, fourComponentDue.amortization - (watchAllocPrincipal || 0) - (watchDiscountPrincipal || 0));
     
     return {
       penalty: Math.round(penalty * 100) / 100,
-      interest: Math.round(interest * 100) / 100,
-      principal: Math.round(principal * 100) / 100,
-      total: Math.round((penalty + interest + principal) * 100) / 100,
+      lateInterest: Math.round(lateInterest * 100) / 100,
+      contractInterest: Math.round(contractInterest * 100) / 100,
+      amortization: Math.round(amortization * 100) / 100,
+      total: Math.round((penalty + lateInterest + contractInterest + amortization) * 100) / 100,
     };
-  }, [dueResult, watchAllocPenalty, watchAllocInterest, watchAllocPrincipal, watchDiscountPenalty, watchDiscountInterest, watchDiscountPrincipal]);
+  }, [fourComponentDue, watchAllocPenalty, watchAllocLateInterest, watchAllocContractInterest, watchAllocPrincipal, watchDiscountPenalty, watchDiscountLateInterest, watchDiscountContractInterest, watchDiscountPrincipal]);
 
   // Valor que fica na parcela
   const valorQueFica = useMemo(() => {
@@ -227,7 +295,7 @@ export function FlexiblePaymentDialog({
     return Math.max(0, Math.round((balanceBreakdown.total - (watchCustomDeferAmount || 0)) * 100) / 100);
   }, [balanceBreakdown.total, watchDeferOption, watchCustomDeferAmount]);
 
-  // Atualizar customDeferAmount quando saldo muda (reset to total if it exceeds)
+  // Atualizar customDeferAmount quando saldo muda
   useEffect(() => {
     const currentDefer = form.getValues("customDeferAmount");
     if (currentDefer > balanceBreakdown.total) {
@@ -235,17 +303,20 @@ export function FlexiblePaymentDialog({
     }
   }, [balanceBreakdown.total, form]);
 
-  // Alocação do valor a postergar com prioridade configurável
+  // Alocação do valor a postergar — use combined interest + principal for defer components
   const deferAllocationPreview = useMemo(() => {
     if (watchDeferOption !== "defer") return null;
     const deferAmount = watchCustomDeferAmount || 0;
     if (deferAmount <= 0) return null;
     
+    // Combine lateInterest + contractInterest as "interest" for defer allocation
+    const totalInterestRemaining = balanceBreakdown.lateInterest + balanceBreakdown.contractInterest;
+    
     return allocateDeferToComponents(
       deferAmount,
       balanceBreakdown.penalty,
-      balanceBreakdown.interest,
-      balanceBreakdown.principal,
+      totalInterestRemaining,
+      balanceBreakdown.amortization,
       watchDeferPriority as DeferPriority
     );
   }, [balanceBreakdown, watchDeferOption, watchCustomDeferAmount, watchDeferPriority]);
@@ -267,7 +338,7 @@ export function FlexiblePaymentDialog({
 
   const canSubmit = validationErrors.length === 0 && ((watchAmountTotal || 0) > 0 || watchDeferOption === "defer");
 
-  // Sync deferDays -> deferToDate when days change
+  // Sync deferDays -> deferToDate
   useEffect(() => {
     const paymentDate = watchPaidAt ?? new Date();
     const currentDeferDate = form.getValues("deferToDate");
@@ -289,12 +360,14 @@ export function FlexiblePaymentDialog({
       note: values.note,
       allocation: {
         penalty: values.allocPenalty,
-        interest: values.allocInterest,
+        lateInterest: values.allocLateInterest,
+        contractInterest: values.allocContractInterest,
         principal: values.allocPrincipal,
       },
       discounts: {
         penalty: values.discountPenalty,
-        interest: values.discountInterest,
+        lateInterest: values.discountLateInterest,
+        contractInterest: values.discountContractInterest,
         principal: values.discountPrincipal,
       },
       defer: values.deferOption === "defer" && (values.customDeferAmount || 0) > 0.01 ? {
@@ -314,6 +387,7 @@ export function FlexiblePaymentDialog({
     if (!newOpen) {
       form.reset();
       setDueResult(null);
+      setScheduleBreakdown(null);
       setDiscountsOpen(false);
     }
     onOpenChange(newOpen);
@@ -336,45 +410,49 @@ export function FlexiblePaymentDialog({
 
           <Form {...form}>
             <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-              {/* Resumo do saldo devido */}
-              {dueResult && (
+              {/* ========== SALDO DEVIDO — 4 COMPONENTES ========== */}
+              {fourComponentDue && dueResult && (
                 <div className="rounded-lg border bg-muted/50 p-4 space-y-2">
                   <p className="font-medium text-sm mb-2">Saldo devido na data do pagamento:</p>
+                  
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Principal:</span>
-                    <span>{formatCurrency(dueResult.breakdown.principal)}</span>
+                    <span className="text-muted-foreground">Juros da operação (contratual):</span>
+                    <span>{formatCurrency(fourComponentDue.contractInterest)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className={cn("text-muted-foreground", dueResult.isOverdue && "text-destructive")}>
+                      Mora ({dueResult.daysOverdue} dias × {receivable.operations.late_interest_daily_percent}%/dia):
+                    </span>
+                    <span className={dueResult.isOverdue ? "text-destructive" : ""}>
+                      {formatCurrency(fourComponentDue.lateInterest)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className={cn("text-muted-foreground", dueResult.isOverdue && "text-destructive")}>
+                      Multa ({receivable.operations.late_penalty_percent}%):
+                    </span>
+                    <span className={dueResult.isOverdue ? "text-destructive" : ""}>
+                      {formatCurrency(fourComponentDue.penalty)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Principal (amortização):</span>
+                    <span>{formatCurrency(fourComponentDue.amortization)}</span>
                   </div>
                   
                   {hasCarriedFees && (
-                    <>
-                      {(receivable.carried_penalty_amount ?? 0) > 0 && (
-                        <div className="flex justify-between text-sm text-muted-foreground">
-                          <span>Multa (renegociação):</span>
-                          <span>{formatCurrency(receivable.carried_penalty_amount)}</span>
-                        </div>
-                      )}
-                      {(receivable.carried_interest_amount ?? 0) > 0 && (
-                        <div className="flex justify-between text-sm text-muted-foreground">
-                          <span>Juros (renegociação):</span>
-                          <span>{formatCurrency(receivable.carried_interest_amount)}</span>
-                        </div>
-                      )}
-                    </>
+                    <div className="text-xs text-amber-600 pt-1">
+                      * Inclui encargos trazidos de renegociação
+                      {(receivable.carried_penalty_amount ?? 0) > 0 && ` (Multa: ${formatCurrency(receivable.carried_penalty_amount)})`}
+                      {(receivable.carried_interest_amount ?? 0) > 0 && ` (Juros: ${formatCurrency(receivable.carried_interest_amount)})`}
+                    </div>
                   )}
                   
-                  <div className="flex justify-between text-sm text-destructive">
-                    <span>Multa ({receivable.operations.late_penalty_percent}%):</span>
-                    <span>{formatCurrency(dueResult.breakdown.penalty)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm text-destructive">
-                    <span>Juros mora ({dueResult.daysOverdue} dias):</span>
-                    <span>{formatCurrency(dueResult.breakdown.interest)}</span>
-                  </div>
                   <Separator className="my-2" />
                   <div className="flex justify-between font-semibold">
                     <span>Total devido:</span>
                     <span className={dueResult.isOverdue ? "text-destructive" : ""}>
-                      {formatCurrency(dueResult.breakdown.total)}
+                      {formatCurrency(fourComponentDue.total)}
                     </span>
                   </div>
                 </div>
@@ -470,7 +548,7 @@ export function FlexiblePaymentDialog({
                 )}
               />
 
-              {/* Bloco de Alocação */}
+              {/* ========== ALOCAÇÃO DO PAGAMENTO — 4 COMPONENTES ========== */}
               <div className="rounded-md border p-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <Label className="text-sm font-medium">Alocação do Pagamento</Label>
@@ -486,7 +564,7 @@ export function FlexiblePaymentDialog({
                   </Button>
                 </div>
                 
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 gap-3">
                   <FormField
                     control={form.control}
                     name="allocPenalty"
@@ -508,10 +586,29 @@ export function FlexiblePaymentDialog({
                   />
                   <FormField
                     control={form.control}
-                    name="allocInterest"
+                    name="allocLateInterest"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="text-xs">Juros</FormLabel>
+                        <FormLabel className="text-xs">Mora (atraso)</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            className="h-8 text-sm"
+                            {...field}
+                            onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="allocContractInterest"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs">Juros operação</FormLabel>
                         <FormControl>
                           <Input
                             type="number"
@@ -562,7 +659,7 @@ export function FlexiblePaymentDialog({
                 </div>
               </div>
 
-              {/* Bloco de Abatimentos (colapsável) */}
+              {/* ========== ABATIMENTOS (COLAPSÁVEL) — 4 COMPONENTES ========== */}
               <Collapsible open={discountsOpen} onOpenChange={setDiscountsOpen}>
                 <CollapsibleTrigger asChild>
                   <Button variant="ghost" className="w-full justify-between p-3 h-auto border">
@@ -582,7 +679,7 @@ export function FlexiblePaymentDialog({
                     <p className="text-xs text-muted-foreground">
                       Valores que serão desconsiderados (isenção negociada)
                     </p>
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-2 gap-3">
                       <FormField
                         control={form.control}
                         name="discountPenalty"
@@ -594,7 +691,6 @@ export function FlexiblePaymentDialog({
                                 type="number"
                                 step="0.01"
                                 min="0"
-                                max={dueResult?.breakdown.penalty || 0}
                                 className="h-8 text-sm"
                                 {...field}
                                 onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
@@ -605,16 +701,34 @@ export function FlexiblePaymentDialog({
                       />
                       <FormField
                         control={form.control}
-                        name="discountInterest"
+                        name="discountLateInterest"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs">Desc. Juros</FormLabel>
+                            <FormLabel className="text-xs">Desc. Mora</FormLabel>
                             <FormControl>
                               <Input
                                 type="number"
                                 step="0.01"
                                 min="0"
-                                max={dueResult?.breakdown.interest || 0}
+                                className="h-8 text-sm"
+                                {...field}
+                                onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="discountContractInterest"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs">Desc. Juros Op.</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                min="0"
                                 className="h-8 text-sm"
                                 {...field}
                                 onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
@@ -634,7 +748,6 @@ export function FlexiblePaymentDialog({
                                 type="number"
                                 step="0.01"
                                 min="0"
-                                max={dueResult?.breakdown.principal || 0}
                                 className="h-8 text-sm"
                                 {...field}
                                 onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
@@ -654,21 +767,25 @@ export function FlexiblePaymentDialog({
                 </CollapsibleContent>
               </Collapsible>
 
-              {/* ========== SALDO REMANESCENTE (SEMPRE VISÍVEL) ========== */}
+              {/* ========== SALDO REMANESCENTE (SEMPRE VISÍVEL) — 4 COMPONENTES ========== */}
               <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
                 <p className="font-medium text-sm">Saldo remanescente (atualizado):</p>
-                <div className="grid grid-cols-3 gap-2 text-sm">
+                <div className="grid grid-cols-2 gap-2 text-sm">
                   <div className="text-center p-2 rounded bg-background border">
-                    <p className="text-xs text-muted-foreground">Principal</p>
-                    <p className="font-semibold">{formatCurrency(balanceBreakdown.principal)}</p>
+                    <p className="text-xs text-muted-foreground">Juros Operação</p>
+                    <p className="font-semibold">{formatCurrency(balanceBreakdown.contractInterest)}</p>
+                  </div>
+                  <div className="text-center p-2 rounded bg-background border">
+                    <p className="text-xs text-muted-foreground">Mora (atraso)</p>
+                    <p className="font-semibold">{formatCurrency(balanceBreakdown.lateInterest)}</p>
                   </div>
                   <div className="text-center p-2 rounded bg-background border">
                     <p className="text-xs text-muted-foreground">Multa</p>
                     <p className="font-semibold">{formatCurrency(balanceBreakdown.penalty)}</p>
                   </div>
                   <div className="text-center p-2 rounded bg-background border">
-                    <p className="text-xs text-muted-foreground">Juros</p>
-                    <p className="font-semibold">{formatCurrency(balanceBreakdown.interest)}</p>
+                    <p className="text-xs text-muted-foreground">Principal</p>
+                    <p className="font-semibold">{formatCurrency(balanceBreakdown.amortization)}</p>
                   </div>
                 </div>
                 <Separator className="my-1" />
@@ -727,7 +844,7 @@ export function FlexiblePaymentDialog({
                           </p>
                         </div>
 
-                        {/* Valor a postergar e valor que fica - MALEÁVEL */}
+                        {/* Valor a postergar e valor que fica */}
                         <div className="grid grid-cols-2 gap-3">
                           <FormField
                             control={form.control}

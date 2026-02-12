@@ -201,14 +201,18 @@ export type Database = {
       }
       payments: {
         Row: {
+          alloc_contract_interest: number | null
           alloc_interest: number | null
+          alloc_late_interest: number | null
           alloc_penalty: number | null
           alloc_principal: number | null
           amount: number
           amount_total: number
           client_id: string | null
           created_at: string | null
+          discount_contract_interest: number | null
           discount_interest: number | null
+          discount_late_interest: number | null
           discount_penalty: number | null
           discount_principal: number | null
           id: string
@@ -226,14 +230,18 @@ export type Database = {
           voided_by: string | null
         }
         Insert: {
+          alloc_contract_interest?: number | null
           alloc_interest?: number | null
+          alloc_late_interest?: number | null
           alloc_penalty?: number | null
           alloc_principal?: number | null
           amount: number
           amount_total: number
           client_id?: string | null
           created_at?: string | null
+          discount_contract_interest?: number | null
           discount_interest?: number | null
+          discount_late_interest?: number | null
           discount_penalty?: number | null
           discount_principal?: number | null
           id?: string
@@ -251,14 +259,18 @@ export type Database = {
           voided_by?: string | null
         }
         Update: {
+          alloc_contract_interest?: number | null
           alloc_interest?: number | null
+          alloc_late_interest?: number | null
           alloc_penalty?: number | null
           alloc_principal?: number | null
           amount?: number
           amount_total?: number
           client_id?: string | null
           created_at?: string | null
+          discount_contract_interest?: number | null
           discount_interest?: number | null
+          discount_late_interest?: number | null
           discount_penalty?: number | null
           discount_principal?: number | null
           id?: string

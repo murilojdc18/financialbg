@@ -91,10 +91,15 @@ export interface DbPayment {
   alloc_penalty: number;
   alloc_interest: number;
   alloc_principal: number;
+  // Campos de alocação discriminada (juros contratual vs mora)
+  alloc_contract_interest: number;
+  alloc_late_interest: number;
   // Campos de desconto/isenção
   discount_penalty: number;
   discount_interest: number;
   discount_principal: number;
+  discount_contract_interest: number;
+  discount_late_interest: number;
   // Campos de correção (soft-void)
   is_voided: boolean;
   void_reason: string | null;
