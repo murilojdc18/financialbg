@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { format, addDays, addMonths, differenceInDays } from "date-fns";
+import { format, addDays, differenceInDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { CalendarIcon, Loader2, Info, ArrowRight, Wand2, ChevronDown, ChevronUp } from "lucide-react";
 import {
@@ -58,14 +58,15 @@ import {
   calculateReceivableDue, 
   allocateDeferToComponents,
   LateFeeConfig,
-  ReceivableDueResult 
+  ReceivableDueResult,
+  DeferPriority,
 } from "@/lib/receivable-calculator";
 import { PaymentMethod } from "@/types/database";
 import { ReceivableForPayment, useFlexiblePaymentV2 } from "@/hooks/useFlexiblePaymentV2";
 
 // Schema com validação
 const formSchema = z.object({
-  amountTotal: z.number({ required_error: "Valor é obrigatório" }).positive("Valor deve ser positivo"),
+  amountTotal: z.number({ required_error: "Valor é obrigatório" }).min(0, "Valor deve ser >= 0"),
   paidAt: z.date({ required_error: "Data de pagamento é obrigatória" }),
   paymentMethod: z.enum(["PIX", "BOLETO", "TRANSFERENCIA", "DINHEIRO", "CARTAO", "OUTRO"], {
     required_error: "Selecione um método de pagamento",
@@ -84,6 +85,7 @@ const formSchema = z.object({
   deferDays: z.number().min(1).max(365).default(30),
   deferToDate: z.date({ required_error: "Data de vencimento é obrigatória" }),
   customDeferAmount: z.number().min(0).default(0),
+  deferPriority: z.enum(["principal", "interest", "penalty"]).default("principal"),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -122,6 +124,7 @@ export function FlexiblePaymentDialog({
       deferDays: 30,
       deferToDate: addDays(new Date(), 30),
       customDeferAmount: 0,
+      deferPriority: "principal",
     },
   });
 
@@ -137,6 +140,7 @@ export function FlexiblePaymentDialog({
   const watchDeferDays = form.watch("deferDays");
   const watchDeferToDate = form.watch("deferToDate");
   const watchCustomDeferAmount = form.watch("customDeferAmount");
+  const watchDeferPriority = form.watch("deferPriority");
 
   // Calcular encargos quando o dialog abre ou data muda
   useEffect(() => {
@@ -201,40 +205,39 @@ export function FlexiblePaymentDialog({
     return (watchDiscountPenalty || 0) + (watchDiscountInterest || 0) + (watchDiscountPrincipal || 0);
   }, [watchDiscountPenalty, watchDiscountInterest, watchDiscountPrincipal]);
 
-  // Saldo restante após pagamento + descontos
-  const balanceAfterPayment = useMemo(() => {
-    if (!dueResult) return 0;
-    
-    const penaltyRemaining = Math.max(0, dueResult.breakdown.penalty - (watchAllocPenalty || 0) - (watchDiscountPenalty || 0));
-    const interestRemaining = Math.max(0, dueResult.breakdown.interest - (watchAllocInterest || 0) - (watchDiscountInterest || 0));
-    const principalRemaining = Math.max(0, dueResult.breakdown.principal - (watchAllocPrincipal || 0) - (watchDiscountPrincipal || 0));
-    
-    return Math.round((penaltyRemaining + interestRemaining + principalRemaining) * 100) / 100;
-  }, [dueResult, watchAllocPenalty, watchAllocInterest, watchAllocPrincipal, watchDiscountPenalty, watchDiscountInterest, watchDiscountPrincipal]);
-
-  // Breakdown do saldo restante
+  // Saldo restante após pagamento + descontos (REAL-TIME)
   const balanceBreakdown = useMemo(() => {
-    if (!dueResult) return null;
+    if (!dueResult) return { penalty: 0, interest: 0, principal: 0, total: 0 };
+    
+    const penalty = Math.max(0, dueResult.breakdown.penalty - (watchAllocPenalty || 0) - (watchDiscountPenalty || 0));
+    const interest = Math.max(0, dueResult.breakdown.interest - (watchAllocInterest || 0) - (watchDiscountInterest || 0));
+    const principal = Math.max(0, dueResult.breakdown.principal - (watchAllocPrincipal || 0) - (watchDiscountPrincipal || 0));
+    
     return {
-      penalty: Math.max(0, dueResult.breakdown.penalty - (watchAllocPenalty || 0) - (watchDiscountPenalty || 0)),
-      interest: Math.max(0, dueResult.breakdown.interest - (watchAllocInterest || 0) - (watchDiscountInterest || 0)),
-      principal: Math.max(0, dueResult.breakdown.principal - (watchAllocPrincipal || 0) - (watchDiscountPrincipal || 0)),
+      penalty: Math.round(penalty * 100) / 100,
+      interest: Math.round(interest * 100) / 100,
+      principal: Math.round(principal * 100) / 100,
+      total: Math.round((penalty + interest + principal) * 100) / 100,
     };
   }, [dueResult, watchAllocPenalty, watchAllocInterest, watchAllocPrincipal, watchDiscountPenalty, watchDiscountInterest, watchDiscountPrincipal]);
 
-  // Atualizar customDeferAmount quando saldo muda
-  useEffect(() => {
-    if (balanceAfterPayment >= 0) {
-      const currentDefer = form.getValues("customDeferAmount");
-      if (!currentDefer || currentDefer > balanceAfterPayment) {
-        form.setValue("customDeferAmount", balanceAfterPayment);
-      }
-    }
-  }, [balanceAfterPayment, form]);
+  // Valor que fica na parcela
+  const valorQueFica = useMemo(() => {
+    if (watchDeferOption !== "defer") return balanceBreakdown.total;
+    return Math.max(0, Math.round((balanceBreakdown.total - (watchCustomDeferAmount || 0)) * 100) / 100);
+  }, [balanceBreakdown.total, watchDeferOption, watchCustomDeferAmount]);
 
-  // Alocação do valor a postergar
+  // Atualizar customDeferAmount quando saldo muda (reset to total if it exceeds)
+  useEffect(() => {
+    const currentDefer = form.getValues("customDeferAmount");
+    if (currentDefer > balanceBreakdown.total) {
+      form.setValue("customDeferAmount", balanceBreakdown.total);
+    }
+  }, [balanceBreakdown.total, form]);
+
+  // Alocação do valor a postergar com prioridade configurável
   const deferAllocationPreview = useMemo(() => {
-    if (!balanceBreakdown || watchDeferOption !== "defer") return null;
+    if (watchDeferOption !== "defer") return null;
     const deferAmount = watchCustomDeferAmount || 0;
     if (deferAmount <= 0) return null;
     
@@ -242,40 +245,36 @@ export function FlexiblePaymentDialog({
       deferAmount,
       balanceBreakdown.penalty,
       balanceBreakdown.interest,
-      balanceBreakdown.principal
+      balanceBreakdown.principal,
+      watchDeferPriority as DeferPriority
     );
-  }, [balanceBreakdown, watchDeferOption, watchCustomDeferAmount]);
+  }, [balanceBreakdown, watchDeferOption, watchCustomDeferAmount, watchDeferPriority]);
 
   // Validações
   const validationErrors = useMemo(() => {
     const errors: string[] = [];
     
-    if (allocationDifference !== 0) {
+    if ((watchAmountTotal || 0) > 0 && allocationDifference !== 0) {
       errors.push(`Soma da alocação (${formatCurrency(totalAllocated)}) deve ser igual ao valor recebido (${formatCurrency(watchAmountTotal || 0)})`);
     }
     
-    if (watchDeferOption === "defer" && (watchCustomDeferAmount || 0) > balanceAfterPayment) {
+    if (watchDeferOption === "defer" && (watchCustomDeferAmount || 0) > balanceBreakdown.total) {
       errors.push("Valor a postergar não pode ser maior que o saldo restante");
     }
     
     return errors;
-  }, [allocationDifference, totalAllocated, watchAmountTotal, watchDeferOption, watchCustomDeferAmount, balanceAfterPayment]);
+  }, [allocationDifference, totalAllocated, watchAmountTotal, watchDeferOption, watchCustomDeferAmount, balanceBreakdown.total]);
 
-  const canSubmit = validationErrors.length === 0 && (watchAmountTotal || 0) > 0;
+  const canSubmit = validationErrors.length === 0 && ((watchAmountTotal || 0) > 0 || watchDeferOption === "defer");
 
   // Sync deferDays -> deferToDate when days change
   useEffect(() => {
     const paymentDate = watchPaidAt ?? new Date();
-    const newDate = addDays(paymentDate, watchDeferDays || 30);
     const currentDeferDate = form.getValues("deferToDate");
-    
-    // Only update if the days field was likely the source of the change
-    const expectedFromDays = addDays(paymentDate, watchDeferDays || 30);
     const daysFromCurrentDate = currentDeferDate ? differenceInDays(currentDeferDate, paymentDate) : 30;
     
-    // If the current date doesn't match what the days field expects, sync
     if (!currentDeferDate || Math.abs(daysFromCurrentDate - (watchDeferDays || 30)) > 0) {
-      form.setValue("deferToDate", newDate);
+      form.setValue("deferToDate", addDays(paymentDate, watchDeferDays || 30));
     }
   }, [watchDeferDays, watchPaidAt]);
 
@@ -298,9 +297,10 @@ export function FlexiblePaymentDialog({
         interest: values.discountInterest,
         principal: values.discountPrincipal,
       },
-      defer: values.deferOption === "defer" ? {
+      defer: values.deferOption === "defer" && (values.customDeferAmount || 0) > 0.01 ? {
         amount: values.customDeferAmount,
         toDate: values.deferToDate,
+        priority: values.deferPriority as DeferPriority,
       } : undefined,
       receivable,
     });
@@ -362,18 +362,14 @@ export function FlexiblePaymentDialog({
                     </>
                   )}
                   
-                  {dueResult.breakdown.penalty > 0 && (
-                    <div className="flex justify-between text-sm text-destructive">
-                      <span>Multa ({receivable.operations.late_penalty_percent}%):</span>
-                      <span>{formatCurrency(dueResult.breakdown.penalty)}</span>
-                    </div>
-                  )}
-                  {dueResult.breakdown.interest > 0 && (
-                    <div className="flex justify-between text-sm text-destructive">
-                      <span>Juros mora ({dueResult.daysOverdue} dias):</span>
-                      <span>{formatCurrency(dueResult.breakdown.interest)}</span>
-                    </div>
-                  )}
+                  <div className="flex justify-between text-sm text-destructive">
+                    <span>Multa ({receivable.operations.late_penalty_percent}%):</span>
+                    <span>{formatCurrency(dueResult.breakdown.penalty)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm text-destructive">
+                    <span>Juros mora ({dueResult.daysOverdue} dias):</span>
+                    <span>{formatCurrency(dueResult.breakdown.interest)}</span>
+                  </div>
                   <Separator className="my-2" />
                   <div className="flex justify-between font-semibold">
                     <span>Total devido:</span>
@@ -658,38 +654,42 @@ export function FlexiblePaymentDialog({
                 </CollapsibleContent>
               </Collapsible>
 
-              {/* Saldo restante e opções */}
-              {balanceAfterPayment > 0.01 && (
+              {/* ========== SALDO REMANESCENTE (SEMPRE VISÍVEL) ========== */}
+              <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
+                <p className="font-medium text-sm">Saldo remanescente (atualizado):</p>
+                <div className="grid grid-cols-3 gap-2 text-sm">
+                  <div className="text-center p-2 rounded bg-background border">
+                    <p className="text-xs text-muted-foreground">Principal</p>
+                    <p className="font-semibold">{formatCurrency(balanceBreakdown.principal)}</p>
+                  </div>
+                  <div className="text-center p-2 rounded bg-background border">
+                    <p className="text-xs text-muted-foreground">Multa</p>
+                    <p className="font-semibold">{formatCurrency(balanceBreakdown.penalty)}</p>
+                  </div>
+                  <div className="text-center p-2 rounded bg-background border">
+                    <p className="text-xs text-muted-foreground">Juros</p>
+                    <p className="font-semibold">{formatCurrency(balanceBreakdown.interest)}</p>
+                  </div>
+                </div>
+                <Separator className="my-1" />
+                <div className="flex justify-between font-semibold text-sm">
+                  <span>Total remanescente:</span>
+                  <span className={balanceBreakdown.total > 0 ? "text-warning" : "text-green-600"}>
+                    {formatCurrency(balanceBreakdown.total)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Opções para saldo remanescente */}
+              {balanceBreakdown.total > 0.01 && (
                 <>
-                  <Separator />
                   <div className="rounded-md border p-4 space-y-4">
-                    <div className="flex justify-between items-center">
-                      <span className="font-medium text-sm">Saldo remanescente:</span>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="font-semibold text-warning cursor-help flex items-center gap-1">
-                            {formatCurrency(balanceAfterPayment)}
-                            <Info className="h-3 w-3" />
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent side="left" className="text-xs">
-                          {balanceBreakdown && (
-                            <>
-                              <p>Principal: {formatCurrency(balanceBreakdown.principal)}</p>
-                              <p>Multa: {formatCurrency(balanceBreakdown.penalty)}</p>
-                              <p>Juros: {formatCurrency(balanceBreakdown.interest)}</p>
-                            </>
-                          )}
-                        </TooltipContent>
-                      </Tooltip>
-                    </div>
-                    
                     <FormField
                       control={form.control}
                       name="deferOption"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel className="text-sm">O que fazer com o saldo?</FormLabel>
+                          <FormLabel className="text-sm font-medium">O que fazer com o saldo remanescente?</FormLabel>
                           <FormControl>
                             <RadioGroup
                               onValueChange={field.onChange}
@@ -705,7 +705,7 @@ export function FlexiblePaymentDialog({
                               <div className="flex items-center space-x-2">
                                 <RadioGroupItem value="defer" id="defer" />
                                 <Label htmlFor="defer" className="text-sm font-normal cursor-pointer">
-                                  Jogar para nova parcela (acrescentar parcela)
+                                  Criar outra parcela (reemitir)
                                 </Label>
                               </div>
                             </RadioGroup>
@@ -716,50 +716,90 @@ export function FlexiblePaymentDialog({
 
                     {watchDeferOption === "defer" && (
                       <div className="space-y-4 pt-3 border-t">
-                        {/* Info box explaining N+1 behavior */}
+                        {/* Info box */}
                         <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-sm space-y-1">
                           <p className="font-medium text-primary flex items-center gap-1">
                             <Info className="h-4 w-4" />
-                            Parcela será criada como PRÓXIMA (N+1)
+                            Parcela será criada como PRÓXIMA ({receivable.installment_number + 1}ª)
                           </p>
                           <p className="text-muted-foreground text-xs">
-                            • A nova parcela será inserida como <strong>parcela {receivable.installment_number + 1}</strong>
-                          </p>
-                          <p className="text-muted-foreground text-xs">
-                            • Todas as parcelas futuras serão renumeradas (+1) e terão vencimento empurrado em 1 mês
+                            Parcelas futuras serão renumeradas (+1) e terão vencimento empurrado em 1 mês.
                           </p>
                         </div>
 
-                        {/* Valor a postergar */}
+                        {/* Valor a postergar e valor que fica - MALEÁVEL */}
+                        <div className="grid grid-cols-2 gap-3">
+                          <FormField
+                            control={form.control}
+                            name="customDeferAmount"
+                            render={({ field }) => (
+                              <FormItem>
+                                <div className="flex items-center justify-between">
+                                  <FormLabel className="text-sm">Valor a postergar</FormLabel>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-5 text-xs px-1"
+                                    onClick={() => form.setValue("customDeferAmount", balanceBreakdown.total)}
+                                  >
+                                    100%
+                                  </Button>
+                                </div>
+                                <FormControl>
+                                  <Input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    max={balanceBreakdown.total}
+                                    className="h-8"
+                                    {...field}
+                                    onChange={(e) => {
+                                      const val = Math.min(parseFloat(e.target.value) || 0, balanceBreakdown.total);
+                                      field.onChange(Math.round(val * 100) / 100);
+                                    }}
+                                  />
+                                </FormControl>
+                              </FormItem>
+                            )}
+                          />
+                          <FormItem>
+                            <FormLabel className="text-sm">Fica nesta parcela</FormLabel>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              max={balanceBreakdown.total}
+                              className="h-8"
+                              value={valorQueFica}
+                              onChange={(e) => {
+                                const val = Math.min(parseFloat(e.target.value) || 0, balanceBreakdown.total);
+                                const newDefer = Math.max(0, Math.round((balanceBreakdown.total - val) * 100) / 100);
+                                form.setValue("customDeferAmount", newDefer);
+                              }}
+                            />
+                          </FormItem>
+                        </div>
+
+                        {/* Prioridade de postergação */}
                         <FormField
                           control={form.control}
-                          name="customDeferAmount"
+                          name="deferPriority"
                           render={({ field }) => (
                             <FormItem>
-                              <div className="flex items-center justify-between">
-                                <FormLabel className="text-sm">Valor a reemitir (R$)</FormLabel>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-6 text-xs"
-                                  onClick={() => form.setValue("customDeferAmount", balanceAfterPayment)}
-                                >
-                                  Usar saldo total
-                                </Button>
-                              </div>
-                              <FormControl>
-                                <Input
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  max={balanceAfterPayment}
-                                  className="h-8"
-                                  {...field}
-                                  onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
-                                />
-                              </FormControl>
-                              <FormMessage />
+                              <FormLabel className="text-sm">Prioridade de postergação</FormLabel>
+                              <Select onValueChange={field.onChange} value={field.value}>
+                                <FormControl>
+                                  <SelectTrigger className="h-8">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="principal">Postergar Principal primeiro (recomendado)</SelectItem>
+                                  <SelectItem value="interest">Postergar Juros primeiro</SelectItem>
+                                  <SelectItem value="penalty">Postergar Multa primeiro</SelectItem>
+                                </SelectContent>
+                              </Select>
                             </FormItem>
                           )}
                         />
@@ -767,38 +807,33 @@ export function FlexiblePaymentDialog({
                         {/* Preview da alocação */}
                         {deferAllocationPreview && (watchCustomDeferAmount || 0) > 0 && (
                           <div className="rounded-md border bg-background p-3 text-sm space-y-2">
-                            <p className="font-medium text-muted-foreground">Nova parcela {receivable.installment_number + 1} receberá:</p>
                             <div className="space-y-1">
-                              {deferAllocationPreview.carriedPrincipal > 0 && (
-                                <div className="flex justify-between">
-                                  <span>→ Principal:</span>
-                                  <span>{formatCurrency(deferAllocationPreview.carriedPrincipal)}</span>
-                                </div>
-                              )}
-                              {deferAllocationPreview.carriedPenalty > 0 && (
-                                <div className="flex justify-between">
-                                  <span>→ Multa:</span>
-                                  <span>{formatCurrency(deferAllocationPreview.carriedPenalty)}</span>
-                                </div>
-                              )}
-                              {deferAllocationPreview.carriedInterest > 0 && (
-                                <div className="flex justify-between">
-                                  <span>→ Juros:</span>
-                                  <span>{formatCurrency(deferAllocationPreview.carriedInterest)}</span>
-                                </div>
-                              )}
+                              <p className="font-medium text-primary text-xs">Vai para nova parcela ({receivable.installment_number + 1}ª):</p>
+                              <div className="flex justify-between text-xs">
+                                <span>Principal: {formatCurrency(deferAllocationPreview.carriedPrincipal)}</span>
+                                <span>Multa: {formatCurrency(deferAllocationPreview.carriedPenalty)}</span>
+                                <span>Juros: {formatCurrency(deferAllocationPreview.carriedInterest)}</span>
+                              </div>
+                              <div className="flex justify-between font-medium">
+                                <span>Total nova parcela:</span>
+                                <span className="text-primary">{formatCurrency(deferAllocationPreview.totalCarried)}</span>
+                              </div>
                             </div>
-                            <Separator className="my-2" />
-                            <div className="flex justify-between font-medium">
-                              <span>Total nova parcela:</span>
-                              <span className="text-primary">{formatCurrency(deferAllocationPreview.totalCarried)}</span>
-                            </div>
-                            
+
                             {deferAllocationPreview.totalRemaining > 0.01 && (
                               <>
-                                <Separator className="my-2" />
-                                <div className="text-muted-foreground text-xs">
-                                  <p>Ficará nesta parcela: {formatCurrency(deferAllocationPreview.totalRemaining)}</p>
+                                <Separator className="my-1" />
+                                <div className="space-y-1">
+                                  <p className="font-medium text-muted-foreground text-xs">Fica nesta parcela ({receivable.installment_number}ª):</p>
+                                  <div className="flex justify-between text-xs">
+                                    <span>Principal: {formatCurrency(deferAllocationPreview.remainingPrincipal)}</span>
+                                    <span>Multa: {formatCurrency(deferAllocationPreview.remainingPenalty)}</span>
+                                    <span>Juros: {formatCurrency(deferAllocationPreview.remainingInterest)}</span>
+                                  </div>
+                                  <div className="flex justify-between font-medium">
+                                    <span>Total que fica:</span>
+                                    <span>{formatCurrency(deferAllocationPreview.totalRemaining)}</span>
+                                  </div>
                                 </div>
                               </>
                             )}
@@ -833,7 +868,6 @@ export function FlexiblePaymentDialog({
                                     selected={field.value}
                                     onSelect={(date) => {
                                       field.onChange(date);
-                                      // Update days field to reflect the new date
                                       if (date && watchPaidAt) {
                                         const days = differenceInDays(date, watchPaidAt);
                                         if (days > 0 && days <= 365) {
@@ -869,7 +903,6 @@ export function FlexiblePaymentDialog({
                                   onChange={(e) => {
                                     const days = parseInt(e.target.value) || 30;
                                     field.onChange(days);
-                                    // Update deferToDate when days change
                                     const paymentDate = watchPaidAt ?? new Date();
                                     form.setValue("deferToDate", addDays(paymentDate, days));
                                   }}

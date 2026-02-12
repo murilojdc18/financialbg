@@ -241,15 +241,22 @@ export function allocatePaymentToComponents(
 }
 
 /**
- * Aloca um valor de postergação nos componentes (ordem inversa ao pagamento):
- * (1) juros -> (2) multa -> (3) principal
- * Isso significa que o juros/multa são priorizados para serem carregados na nova parcela.
+ * Prioridade de alocação para postergação
+ */
+export type DeferPriority = 'principal' | 'interest' | 'penalty';
+
+/**
+ * Aloca um valor de postergação nos componentes com prioridade configurável.
+ * A prioridade define qual componente é postergado primeiro.
+ * 
+ * Padrão: 'interest' (juros -> multa -> principal) - comportamento legado
  */
 export function allocateDeferToComponents(
   deferAmount: number,
   penaltyRemaining: number,
   interestRemaining: number,
-  principalRemaining: number
+  principalRemaining: number,
+  priority: DeferPriority = 'interest'
 ): {
   carriedInterest: number;
   carriedPenalty: number;
@@ -262,31 +269,51 @@ export function allocateDeferToComponents(
 } {
   let remaining = deferAmount;
 
-  // 1. Aloca para juros primeiro (prioridade para carregar encargos)
-  const carriedInterest = Math.min(remaining, interestRemaining);
-  remaining -= carriedInterest;
+  // Build ordered buckets based on priority
+  const buckets: { key: 'interest' | 'penalty' | 'principal'; available: number }[] = [];
+  
+  if (priority === 'principal') {
+    buckets.push(
+      { key: 'principal', available: principalRemaining },
+      { key: 'interest', available: interestRemaining },
+      { key: 'penalty', available: penaltyRemaining },
+    );
+  } else if (priority === 'penalty') {
+    buckets.push(
+      { key: 'penalty', available: penaltyRemaining },
+      { key: 'interest', available: interestRemaining },
+      { key: 'principal', available: principalRemaining },
+    );
+  } else {
+    // Default: interest first (legacy)
+    buckets.push(
+      { key: 'interest', available: interestRemaining },
+      { key: 'penalty', available: penaltyRemaining },
+      { key: 'principal', available: principalRemaining },
+    );
+  }
 
-  // 2. Aloca para multa
-  const carriedPenalty = Math.min(remaining, penaltyRemaining);
-  remaining -= carriedPenalty;
+  const carried: Record<string, number> = { interest: 0, penalty: 0, principal: 0 };
 
-  // 3. Aloca para principal
-  const carriedPrincipal = Math.min(remaining, principalRemaining);
+  for (const bucket of buckets) {
+    const take = Math.min(remaining, bucket.available);
+    carried[bucket.key] = take;
+    remaining -= take;
+  }
 
-  // Calcular o que fica na parcela original
-  const remainingInterest = Math.max(0, interestRemaining - carriedInterest);
-  const remainingPenalty = Math.max(0, penaltyRemaining - carriedPenalty);
-  const remainingPrincipal = Math.max(0, principalRemaining - carriedPrincipal);
+  const rInterest = Math.max(0, interestRemaining - carried.interest);
+  const rPenalty = Math.max(0, penaltyRemaining - carried.penalty);
+  const rPrincipal = Math.max(0, principalRemaining - carried.principal);
 
   return {
-    carriedInterest: Math.round(carriedInterest * 100) / 100,
-    carriedPenalty: Math.round(carriedPenalty * 100) / 100,
-    carriedPrincipal: Math.round(carriedPrincipal * 100) / 100,
-    totalCarried: Math.round((carriedInterest + carriedPenalty + carriedPrincipal) * 100) / 100,
-    remainingInterest: Math.round(remainingInterest * 100) / 100,
-    remainingPenalty: Math.round(remainingPenalty * 100) / 100,
-    remainingPrincipal: Math.round(remainingPrincipal * 100) / 100,
-    totalRemaining: Math.round((remainingInterest + remainingPenalty + remainingPrincipal) * 100) / 100,
+    carriedInterest: Math.round(carried.interest * 100) / 100,
+    carriedPenalty: Math.round(carried.penalty * 100) / 100,
+    carriedPrincipal: Math.round(carried.principal * 100) / 100,
+    totalCarried: Math.round((carried.interest + carried.penalty + carried.principal) * 100) / 100,
+    remainingInterest: Math.round(rInterest * 100) / 100,
+    remainingPenalty: Math.round(rPenalty * 100) / 100,
+    remainingPrincipal: Math.round(rPrincipal * 100) / 100,
+    totalRemaining: Math.round((rInterest + rPenalty + rPrincipal) * 100) / 100,
   };
 }
 
