@@ -6,7 +6,8 @@ import { addMonths } from 'date-fns';
 import { 
   calculateReceivableDue, 
   allocateDeferToComponents,
-  LateFeeConfig 
+  LateFeeConfig,
+  DeferPriority,
 } from '@/lib/receivable-calculator';
 import { ReceivableStatus, PaymentMethod } from '@/types/database';
 
@@ -54,6 +55,7 @@ export interface FlexiblePaymentV2Input {
   defer?: {
     amount: number;
     toDate: Date;
+    priority?: DeferPriority;
   };
 }
 
@@ -178,12 +180,13 @@ export function useFlexiblePaymentV2() {
       let newReceivableId: string | null = null;
       
       if (defer && defer.amount > 0.01 && !isPaidInFull) {
-        // Alocar o valor a postergar: juros -> multa -> principal
+        // Alocar o valor a postergar com prioridade configurável
         const deferAllocation = allocateDeferToComponents(
           defer.amount,
           penaltyRemaining,
           interestRemaining,
-          principalRemaining
+          principalRemaining,
+          defer.priority || 'principal'
         );
         
         // Data de vencimento da nova parcela (vem do DatePicker)
@@ -194,18 +197,15 @@ export function useFlexiblePaymentV2() {
         const newInstallmentNumber = currentN + 1;
 
         // ====== SHIFT FUTURE INSTALLMENTS ======
-        // Step 1: Fetch all future installments (>= N+1)
         const { data: futureInstallments, error: fetchError } = await supabase
           .from('receivables')
           .select('id, installment_number, due_date')
           .eq('operation_id', receivable.operation_id)
           .gte('installment_number', newInstallmentNumber)
-          .order('installment_number', { ascending: false }); // DESC order to avoid conflicts
+          .order('installment_number', { ascending: false });
         
         if (fetchError) throw fetchError;
 
-        // Step 2: Shift each future installment (+1 to number, +1 month to due_date)
-        // Process in descending order to avoid unique constraint conflicts
         if (futureInstallments && futureInstallments.length > 0) {
           for (const installment of futureInstallments) {
             const newNumber = installment.installment_number + 1;
@@ -224,7 +224,7 @@ export function useFlexiblePaymentV2() {
           }
         }
 
-        // Step 3: Insert new installment as N+1
+        // Insert new installment as N+1
         const { data: newReceivable, error: insertError } = await supabase
           .from('receivables')
           .insert({
@@ -249,22 +249,28 @@ export function useFlexiblePaymentV2() {
         
         newReceivableId = newReceivable?.id ?? null;
 
-        // Step 4: Update original installment status
+        // Update original installment — adjust to reflect what STAYS (avoid duplication)
         const saldoQueFica = totalRemaining - defer.amount;
-        const originalStatus: ReceivableStatus = saldoQueFica <= 0.01 ? 'RENEGOCIADA' : 'PARCIAL';
+        const isFullyDeferred = saldoQueFica <= 0.01;
+        const originalStatus: ReceivableStatus = isFullyDeferred ? 'RENEGOCIADA' : 'PARCIAL';
 
         const renegotiationNote = `Parcela reemitida para ${newInstallmentNumber} (${newDueDate.toISOString().split('T')[0]}): Principal R$ ${deferAllocation.carriedPrincipal.toFixed(2)} + Multa R$ ${deferAllocation.carriedPenalty.toFixed(2)} + Juros R$ ${deferAllocation.carriedInterest.toFixed(2)}`;
         
         const originalUpdate: Record<string, unknown> = {
           renegotiated_to_receivable_id: newReceivableId,
-          accrual_frozen_at: paymentDate.toISOString().split('T')[0],
           notes: receivable.notes 
             ? `${receivable.notes}\n${renegotiationNote}` 
             : renegotiationNote,
           status: originalStatus,
+          // Adjust the original receivable's amount to what STAYS
+          amount: deferAllocation.remainingPrincipal,
+          carried_penalty_amount: deferAllocation.remainingPenalty,
+          carried_interest_amount: deferAllocation.remainingInterest,
         };
 
-        if (originalStatus === 'RENEGOCIADA') {
+        // Only freeze accrual if fully deferred (nothing stays)
+        if (isFullyDeferred) {
+          originalUpdate.accrual_frozen_at = paymentDate.toISOString().split('T')[0];
           originalUpdate.paid_at = paymentDate.toISOString();
         }
 
