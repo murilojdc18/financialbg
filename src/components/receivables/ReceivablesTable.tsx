@@ -66,7 +66,6 @@ export function ReceivablesTable({
       interest_accrued: receivable.interest_accrued ?? 0,
       last_interest_calc_at: receivable.last_interest_calc_at ?? null,
       notes: receivable.notes ?? null,
-      // Novos campos para encargos carregados
       carried_penalty_amount: receivable.carried_penalty_amount ?? 0,
       carried_interest_amount: receivable.carried_interest_amount ?? 0,
       accrual_frozen_at: receivable.accrual_frozen_at ?? null,
@@ -75,6 +74,13 @@ export function ReceivablesTable({
         late_penalty_percent: config.latePenaltyPercent,
         late_interest_monthly_percent: 1,
         late_interest_daily_percent: config.lateInterestDailyPercent ?? 0.5,
+        principal: Number(receivable.operations?.principal ?? 0),
+        rate_monthly: Number(receivable.operations?.rate_monthly ?? 0),
+        term_months: receivable.operations?.term_months ?? 0,
+        system: receivable.operations?.system ?? 'PRICE',
+        start_date: receivable.operations?.start_date ?? '',
+        fee_fixed: Number(receivable.operations?.fee_fixed ?? 0),
+        fee_insurance: Number(receivable.operations?.fee_insurance ?? 0),
       },
     };
     setSelectedReceivable(forPayment);

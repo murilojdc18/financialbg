@@ -30,6 +30,15 @@ import { StatusBadge } from "@/components/StatusBadge";
 interface ReceivablesSectionProps {
   operationId: string;
   lateFeeConfig: LateFeeConfig;
+  operationData?: {
+    principal: number;
+    rate_monthly: number;
+    term_months: number;
+    system: string;
+    start_date: string;
+    fee_fixed?: number | null;
+    fee_insurance?: number | null;
+  };
 }
 
 function getDisplayStatus(receivable: DbReceivable): ReceivableStatus {
@@ -43,7 +52,7 @@ function getDisplayStatus(receivable: DbReceivable): ReceivableStatus {
   return "EM_ABERTO";
 }
 
-export function ReceivablesSection({ operationId, lateFeeConfig }: ReceivablesSectionProps) {
+export function ReceivablesSection({ operationId, lateFeeConfig, operationData }: ReceivablesSectionProps) {
   const { data: receivables, isLoading, error } = useReceivablesByOperation(operationId);
   const queryClient = useQueryClient();
   
@@ -77,6 +86,13 @@ export function ReceivablesSection({ operationId, lateFeeConfig }: ReceivablesSe
         late_penalty_percent: lateFeeConfig.latePenaltyPercent,
         late_interest_monthly_percent: 1,
         late_interest_daily_percent: lateFeeConfig.lateInterestDailyPercent ?? 0.5,
+        principal: operationData?.principal ?? 0,
+        rate_monthly: operationData?.rate_monthly ?? 0,
+        term_months: operationData?.term_months ?? 0,
+        system: operationData?.system ?? 'PRICE',
+        start_date: operationData?.start_date ?? '',
+        fee_fixed: operationData?.fee_fixed,
+        fee_insurance: operationData?.fee_insurance,
       },
     };
     setSelectedReceivable(forPayment);

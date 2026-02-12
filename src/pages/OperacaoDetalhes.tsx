@@ -336,6 +336,15 @@ export default function OperacaoDetalhes() {
             latePenaltyPercent: Number(operation.late_penalty_percent) ?? 10,
             lateInterestDailyPercent: Number(operation.late_interest_daily_percent) ?? 0.5,
           }}
+          operationData={{
+            principal: Number(operation.principal),
+            rate_monthly: Number(operation.rate_monthly),
+            term_months: operation.term_months,
+            system: operation.system,
+            start_date: operation.start_date,
+            fee_fixed: Number(operation.fee_fixed ?? 0),
+            fee_insurance: Number(operation.fee_insurance ?? 0),
+          }}
         />
 
         {/* Cronograma Simulado (para referência) */}

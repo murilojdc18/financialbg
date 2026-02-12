@@ -33,6 +33,14 @@ export interface ReceivableForPayment {
     late_penalty_percent: number;
     late_interest_monthly_percent: number;
     late_interest_daily_percent: number;
+    // Operation schedule data for contract interest calculation
+    principal: number;
+    rate_monthly: number;
+    term_months: number;
+    system: string;
+    start_date: string;
+    fee_fixed?: number | null;
+    fee_insurance?: number | null;
   };
 }
 
@@ -44,12 +52,14 @@ export interface FlexiblePaymentV2Input {
   note?: string;
   allocation: {
     penalty: number;
-    interest: number;
+    lateInterest: number;
+    contractInterest: number;
     principal: number;
   };
   discounts: {
     penalty: number;
-    interest: number;
+    lateInterest: number;
+    contractInterest: number;
     principal: number;
   };
   defer?: {
@@ -110,8 +120,10 @@ export function useFlexiblePaymentV2() {
       );
 
       // Calcular saldo restante após alocação + descontos
+      const totalAllocInterest = allocation.lateInterest + allocation.contractInterest;
+      const totalDiscountInterest = discounts.lateInterest + discounts.contractInterest;
       const penaltyRemaining = Math.max(0, dueResult.breakdown.penalty - allocation.penalty - discounts.penalty);
-      const interestRemaining = Math.max(0, dueResult.breakdown.interest - allocation.interest - discounts.interest);
+      const interestRemaining = Math.max(0, dueResult.breakdown.interest - totalAllocInterest - totalDiscountInterest);
       const principalRemaining = Math.max(0, dueResult.breakdown.principal - allocation.principal - discounts.principal);
       const totalRemaining = penaltyRemaining + interestRemaining + principalRemaining;
 
@@ -140,10 +152,14 @@ export function useFlexiblePaymentV2() {
           amount: amountTotal,
           amount_total: amountTotal,
           alloc_penalty: allocation.penalty,
-          alloc_interest: allocation.interest,
+          alloc_interest: allocation.lateInterest + allocation.contractInterest,
+          alloc_late_interest: allocation.lateInterest,
+          alloc_contract_interest: allocation.contractInterest,
           alloc_principal: allocation.principal,
           discount_penalty: discounts.penalty,
-          discount_interest: discounts.interest,
+          discount_interest: discounts.lateInterest + discounts.contractInterest,
+          discount_late_interest: discounts.lateInterest,
+          discount_contract_interest: discounts.contractInterest,
           discount_principal: discounts.principal,
           paid_at: paymentDate.toISOString(),
           method: paymentMethod,
