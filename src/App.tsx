@@ -12,6 +12,7 @@ import SimuladorEmprestimo from "./pages/SimuladorEmprestimo";
 import Clientes from "./pages/Clientes";
 import Operacoes from "./pages/Operacoes";
 import OperacaoDetalhes from "./pages/OperacaoDetalhes";
+import OperacaoPrint from "./pages/OperacaoPrint";
 import ContasAReceber from "./pages/ContasAReceber";
 import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
@@ -84,6 +85,14 @@ const App = () => (
                   <AppLayout>
                     <OperacaoDetalhes />
                   </AppLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/operacoes/:id/print"
+              element={
+                <ProtectedRoute>
+                  <OperacaoPrint />
                 </ProtectedRoute>
               }
             />
