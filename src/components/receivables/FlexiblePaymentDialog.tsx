@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { format, addDays, differenceInDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { CalendarIcon, Loader2, Info, ArrowRight, Wand2, ChevronDown, ChevronUp } from "lucide-react";
+import { CalendarIcon, Loader2, Info, ArrowRight, Wand2, ChevronDown, ChevronUp, RefreshCw } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -233,6 +233,15 @@ export function FlexiblePaymentDialog({
     };
   }, [dueResult, scheduleBreakdown]);
 
+  // Detect "interest-only payment" mode
+  const isInterestOnlyPayment = useMemo(() => {
+    if (!fourComponentDue || !scheduleBreakdown) return false;
+    const allocPrincipal = watchAllocPrincipal || 0;
+    const allocContractInterest = watchAllocContractInterest || 0;
+    // Interest-only: paid contract interest but no principal, and there IS amortization due
+    return allocPrincipal < 0.01 && allocContractInterest > 0.01 && fourComponentDue.amortization > 0.01;
+  }, [watchAllocPrincipal, watchAllocContractInterest, fourComponentDue, scheduleBreakdown]);
+
   // Auto distribuir alocação — order: penalty -> late interest -> contract interest -> principal
   const handleAutoDistribute = useCallback(() => {
     if (!fourComponentDue) return;
@@ -288,17 +297,26 @@ export function FlexiblePaymentDialog({
     };
   }, [fourComponentDue, watchAllocPenalty, watchAllocLateInterest, watchAllocContractInterest, watchAllocPrincipal, watchDiscountPenalty, watchDiscountLateInterest, watchDiscountContractInterest, watchDiscountPrincipal]);
 
-  // When balance > 0, auto-force defer and set customDeferAmount to 100%
+  // When balance > 0, auto-force defer and set customDeferAmount
   useEffect(() => {
     if (balanceBreakdown.total > 0.01) {
       form.setValue("deferOption", "defer");
-      form.setValue("customDeferAmount", balanceBreakdown.total);
+      if (isInterestOnlyPayment && scheduleBreakdown) {
+        // For interest-only, the deferred amount is the full installment total
+        form.setValue("customDeferAmount", scheduleBreakdown.installmentTotal);
+      } else {
+        form.setValue("customDeferAmount", balanceBreakdown.total);
+      }
     }
-  }, [balanceBreakdown.total, form]);
+  }, [balanceBreakdown.total, isInterestOnlyPayment, scheduleBreakdown, form]);
 
   // Alocação do valor a postergar — use combined interest + principal for defer components
   const deferAllocationPreview = useMemo(() => {
     if (watchDeferOption !== "defer") return null;
+    if (isInterestOnlyPayment && scheduleBreakdown) {
+      // For interest-only, show the full installment breakdown
+      return null; // We'll show custom preview instead
+    }
     const deferAmount = watchCustomDeferAmount || 0;
     if (deferAmount <= 0) return null;
     
@@ -312,7 +330,7 @@ export function FlexiblePaymentDialog({
       balanceBreakdown.amortization,
       watchDeferPriority as DeferPriority
     );
-  }, [balanceBreakdown, watchDeferOption, watchCustomDeferAmount, watchDeferPriority]);
+  }, [balanceBreakdown, watchDeferOption, watchCustomDeferAmount, watchDeferPriority, isInterestOnlyPayment, scheduleBreakdown]);
 
   // Validações
   const validationErrors = useMemo(() => {
@@ -322,19 +340,17 @@ export function FlexiblePaymentDialog({
       errors.push(`Soma da alocação (${formatCurrency(totalAllocated)}) deve ser igual ao valor recebido (${formatCurrency(watchAmountTotal || 0)})`);
     }
     
-    // New rule: if there's remaining balance, defer is mandatory and must cover 100%
+    // New rule: if there's remaining balance, defer is mandatory
     if (balanceBreakdown.total > 0.01) {
       if (watchDeferOption !== "defer") {
         errors.push(`Existe saldo remanescente de ${formatCurrency(balanceBreakdown.total)}. Para concluir o pagamento, você precisa postergar esse saldo para uma nova parcela.`);
-      } else if (Math.abs((watchCustomDeferAmount || 0) - balanceBreakdown.total) > 0.01) {
-        errors.push(`O valor a postergar (${formatCurrency(watchCustomDeferAmount || 0)}) deve ser igual ao saldo remanescente (${formatCurrency(balanceBreakdown.total)}). Todo o saldo deve ir para a nova parcela.`);
       }
     }
     
     return errors;
-  }, [allocationDifference, totalAllocated, watchAmountTotal, watchDeferOption, watchCustomDeferAmount, balanceBreakdown.total]);
+  }, [allocationDifference, totalAllocated, watchAmountTotal, watchDeferOption, balanceBreakdown.total]);
 
-  const canSubmit = validationErrors.length === 0 && ((watchAmountTotal || 0) > 0);
+  const canSubmit = validationErrors.length === 0 && ((watchAmountTotal || 0) > 0) && (balanceBreakdown.total <= 0.01 || watchDeferOption === "defer");
 
   // Sync deferDays -> deferToDate
   useEffect(() => {
@@ -373,6 +389,8 @@ export function FlexiblePaymentDialog({
         toDate: values.deferToDate,
         priority: values.deferPriority as DeferPriority,
       } : undefined,
+      isInterestOnlyPayment,
+      scheduleBreakdown,
       receivable,
     });
 
@@ -805,80 +823,42 @@ export function FlexiblePaymentDialog({
               {/* Postergação obrigatória quando há saldo */}
               {balanceBreakdown.total > 0.01 && (
                 <>
-                  {/* Warning banner */}
-                  <div className="rounded-md border border-amber-400 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700 p-3 text-sm">
-                    <p className="font-medium text-amber-800 dark:text-amber-300 flex items-center gap-1">
-                      <Info className="h-4 w-4" />
-                      Para concluir, postergue o saldo remanescente.
-                    </p>
-                    <p className="text-amber-700 dark:text-amber-400 text-xs mt-1">
-                      Todo pagamento encerra a parcela atual como PAGO. O saldo restante será movido para uma nova parcela.
-                    </p>
-                  </div>
-
-                  <div className="rounded-md border p-4 space-y-4">
-                    <p className="text-sm font-medium">Postergar saldo para nova parcela</p>
-
-                    <div className="space-y-4">
-                        {/* Info box */}
-                        <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-sm space-y-1">
-                          <p className="font-medium text-primary flex items-center gap-1">
-                            <Info className="h-4 w-4" />
-                            Nova parcela será criada como {receivable.installment_number + 1}ª
-                          </p>
-                          <p className="text-muted-foreground text-xs">
-                            Parcelas futuras serão renumeradas (+1) e terão vencimento empurrado em 1 mês.
-                          </p>
-                        </div>
-
-                        {/* Valor a postergar — locked to 100% */}
-                        <div className="flex justify-between text-sm p-2 bg-muted rounded">
-                          <span className="font-medium">Valor a postergar:</span>
-                          <span className="font-semibold text-primary">{formatCurrency(balanceBreakdown.total)}</span>
-                        </div>
-
-                        {/* Prioridade de postergação */}
-                        <FormField
-                          control={form.control}
-                          name="deferPriority"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="text-sm">Prioridade de postergação</FormLabel>
-                              <Select onValueChange={field.onChange} value={field.value}>
-                                <FormControl>
-                                  <SelectTrigger className="h-8">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  <SelectItem value="principal">Postergar Principal primeiro (recomendado)</SelectItem>
-                                  <SelectItem value="interest">Postergar Juros primeiro</SelectItem>
-                                  <SelectItem value="penalty">Postergar Multa primeiro</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </FormItem>
-                          )}
-                        />
-
-                        {/* Preview da alocação */}
-                        {deferAllocationPreview && (watchCustomDeferAmount || 0) > 0 && (
-                          <div className="rounded-md border bg-background p-3 text-sm space-y-2">
-                            <div className="space-y-1">
-                              <p className="font-medium text-primary text-xs">Vai para nova parcela ({receivable.installment_number + 1}ª):</p>
-                              <div className="flex justify-between text-xs">
-                                <span>Principal: {formatCurrency(deferAllocationPreview.carriedPrincipal)}</span>
-                                <span>Multa: {formatCurrency(deferAllocationPreview.carriedPenalty)}</span>
-                                <span>Juros: {formatCurrency(deferAllocationPreview.carriedInterest)}</span>
-                              </div>
-                              <div className="flex justify-between font-medium">
-                                <span>Total nova parcela:</span>
-                                <span className="text-primary">{formatCurrency(deferAllocationPreview.totalCarried)}</span>
-                              </div>
-                            </div>
+                  {/* ========== INTEREST-ONLY DETECTION ========== */}
+                  {isInterestOnlyPayment && scheduleBreakdown ? (
+                    <>
+                      {/* Special banner for interest-only payment */}
+                      <div className="rounded-md border border-blue-400 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-700 p-3 text-sm space-y-2">
+                        <p className="font-medium text-blue-800 dark:text-blue-300 flex items-center gap-1">
+                          <RefreshCw className="h-4 w-4" />
+                          Pagamento somente de juros detectado
+                        </p>
+                        <p className="text-blue-700 dark:text-blue-400 text-xs">
+                          O principal não foi amortizado. O sistema irá encerrar esta parcela como PAGO e criar uma nova parcela <strong>completa e igual</strong> (mesma composição).
+                        </p>
+                        <div className="mt-2 rounded border border-blue-200 dark:border-blue-800 bg-background p-3 space-y-1">
+                          <p className="text-xs font-medium text-muted-foreground">Nova parcela ({receivable.installment_number + 1}ª) será criada com:</p>
+                          <div className="flex justify-between text-xs">
+                            <span>Juros contratual:</span>
+                            <span className="font-medium">{formatCurrency(scheduleBreakdown.contractInterest)}</span>
                           </div>
-                        )}
+                          <div className="flex justify-between text-xs">
+                            <span>Principal (amortização):</span>
+                            <span className="font-medium">{formatCurrency(scheduleBreakdown.amortization)}</span>
+                          </div>
+                          <Separator className="my-1" />
+                          <div className="flex justify-between text-sm font-semibold">
+                            <span>Total da nova parcela:</span>
+                            <span className="text-primary">{formatCurrency(scheduleBreakdown.installmentTotal)}</span>
+                          </div>
+                        </div>
+                        <p className="text-blue-700 dark:text-blue-400 text-xs mt-1">
+                          Parcelas futuras serão renumeradas (+1) e terão vencimento empurrado em 1 mês.
+                        </p>
+                      </div>
 
-                        {/* DatePicker for new installment due date */}
+                      {/* DatePicker for new installment */}
+                      <div className="rounded-md border p-4 space-y-4">
+                        <p className="text-sm font-medium">Vencimento da nova parcela</p>
                         <FormField
                           control={form.control}
                           name="deferToDate"
@@ -924,7 +904,6 @@ export function FlexiblePaymentDialog({
                           )}
                         />
 
-                        {/* Dias como atalho opcional */}
                         <FormField
                           control={form.control}
                           name="deferDays"
@@ -954,7 +933,161 @@ export function FlexiblePaymentDialog({
                           )}
                         />
                       </div>
-                  </div>
+                    </>
+                  ) : (
+                    <>
+                      {/* Standard defer flow */}
+                      <div className="rounded-md border border-amber-400 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700 p-3 text-sm">
+                        <p className="font-medium text-amber-800 dark:text-amber-300 flex items-center gap-1">
+                          <Info className="h-4 w-4" />
+                          Para concluir, postergue o saldo remanescente.
+                        </p>
+                        <p className="text-amber-700 dark:text-amber-400 text-xs mt-1">
+                          Todo pagamento encerra a parcela atual como PAGO. O saldo restante será movido para uma nova parcela.
+                        </p>
+                      </div>
+
+                      <div className="rounded-md border p-4 space-y-4">
+                        <p className="text-sm font-medium">Postergar saldo para nova parcela</p>
+
+                        <div className="space-y-4">
+                          {/* Info box */}
+                          <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-sm space-y-1">
+                            <p className="font-medium text-primary flex items-center gap-1">
+                              <Info className="h-4 w-4" />
+                              Nova parcela será criada como {receivable.installment_number + 1}ª
+                            </p>
+                            <p className="text-muted-foreground text-xs">
+                              Parcelas futuras serão renumeradas (+1) e terão vencimento empurrado em 1 mês.
+                            </p>
+                          </div>
+
+                          {/* Valor a postergar — locked to 100% */}
+                          <div className="flex justify-between text-sm p-2 bg-muted rounded">
+                            <span className="font-medium">Valor a postergar:</span>
+                            <span className="font-semibold text-primary">{formatCurrency(balanceBreakdown.total)}</span>
+                          </div>
+
+                          {/* Prioridade de postergação */}
+                          <FormField
+                            control={form.control}
+                            name="deferPriority"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-sm">Prioridade de postergação</FormLabel>
+                                <Select onValueChange={field.onChange} value={field.value}>
+                                  <FormControl>
+                                    <SelectTrigger className="h-8">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    <SelectItem value="principal">Postergar Principal primeiro (recomendado)</SelectItem>
+                                    <SelectItem value="interest">Postergar Juros primeiro</SelectItem>
+                                    <SelectItem value="penalty">Postergar Multa primeiro</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </FormItem>
+                            )}
+                          />
+
+                          {/* Preview da alocação */}
+                          {deferAllocationPreview && (watchCustomDeferAmount || 0) > 0 && (
+                            <div className="rounded-md border bg-background p-3 text-sm space-y-2">
+                              <div className="space-y-1">
+                                <p className="font-medium text-primary text-xs">Vai para nova parcela ({receivable.installment_number + 1}ª):</p>
+                                <div className="flex justify-between text-xs">
+                                  <span>Principal: {formatCurrency(deferAllocationPreview.carriedPrincipal)}</span>
+                                  <span>Multa: {formatCurrency(deferAllocationPreview.carriedPenalty)}</span>
+                                  <span>Juros: {formatCurrency(deferAllocationPreview.carriedInterest)}</span>
+                                </div>
+                                <div className="flex justify-between font-medium">
+                                  <span>Total nova parcela:</span>
+                                  <span className="text-primary">{formatCurrency(deferAllocationPreview.totalCarried)}</span>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* DatePicker for new installment due date */}
+                          <FormField
+                            control={form.control}
+                            name="deferToDate"
+                            render={({ field }) => (
+                              <FormItem className="flex flex-col">
+                                <FormLabel className="text-sm">Vencimento da nova parcela *</FormLabel>
+                                <Popover>
+                                  <PopoverTrigger asChild>
+                                    <FormControl>
+                                      <Button
+                                        variant="outline"
+                                        className={cn(
+                                          "w-full pl-3 text-left font-normal",
+                                          !field.value && "text-muted-foreground"
+                                        )}
+                                      >
+                                        {field.value ? format(field.value, "dd/MM/yyyy") : "Selecione"}
+                                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                      </Button>
+                                    </FormControl>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-auto p-0" align="start">
+                                    <Calendar
+                                      mode="single"
+                                      selected={field.value}
+                                      onSelect={(date) => {
+                                        field.onChange(date);
+                                        if (date && watchPaidAt) {
+                                          const days = differenceInDays(date, watchPaidAt);
+                                          if (days > 0 && days <= 365) {
+                                            form.setValue("deferDays", days);
+                                          }
+                                        }
+                                      }}
+                                      disabled={(date) => date < (watchPaidAt ?? new Date())}
+                                      locale={ptBR}
+                                      className="pointer-events-auto"
+                                    />
+                                  </PopoverContent>
+                                </Popover>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          {/* Dias como atalho opcional */}
+                          <FormField
+                            control={form.control}
+                            name="deferDays"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-sm text-muted-foreground">Atalho: Dias a partir do pagamento</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    type="number"
+                                    min="1"
+                                    max="365"
+                                    className="h-8"
+                                    {...field}
+                                    onChange={(e) => {
+                                      const days = parseInt(e.target.value) || 30;
+                                      field.onChange(days);
+                                      const paymentDate = watchPaidAt ?? new Date();
+                                      form.setValue("deferToDate", addDays(paymentDate, days));
+                                    }}
+                                  />
+                                </FormControl>
+                                <FormDescription className="flex items-center gap-1 text-xs">
+                                  <ArrowRight className="h-3 w-3" />
+                                  Vencimento calculado: {format(watchDeferToDate ?? addDays(watchPaidAt ?? new Date(), watchDeferDays || 30), "dd/MM/yyyy")}
+                                </FormDescription>
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </>
               )}
 
