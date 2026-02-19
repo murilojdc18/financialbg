@@ -48,6 +48,7 @@ import {
 import { Calendar } from "@/components/ui/calendar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
@@ -550,13 +551,11 @@ export function FlexiblePaymentDialog({
                   <FormItem>
                     <FormLabel>Valor Recebido (R$) *</FormLabel>
                     <FormControl>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        min="0"
+                      <CurrencyInput
+                        value={field.value}
+                        onValueChange={field.onChange}
+                        showPrefix
                         placeholder="0,00"
-                        {...field}
-                        onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
                       />
                     </FormControl>
                     <FormMessage />
@@ -588,13 +587,10 @@ export function FlexiblePaymentDialog({
                       <FormItem>
                         <FormLabel className="text-xs">Multa</FormLabel>
                         <FormControl>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            min="0"
+                          <CurrencyInput
+                            value={field.value}
+                            onValueChange={field.onChange}
                             className="h-8 text-sm"
-                            {...field}
-                            onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
                           />
                         </FormControl>
                       </FormItem>
@@ -607,13 +603,10 @@ export function FlexiblePaymentDialog({
                       <FormItem>
                         <FormLabel className="text-xs">Mora (atraso)</FormLabel>
                         <FormControl>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            min="0"
+                          <CurrencyInput
+                            value={field.value}
+                            onValueChange={field.onChange}
                             className="h-8 text-sm"
-                            {...field}
-                            onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
                           />
                         </FormControl>
                       </FormItem>
@@ -626,13 +619,10 @@ export function FlexiblePaymentDialog({
                       <FormItem>
                         <FormLabel className="text-xs">Juros operação</FormLabel>
                         <FormControl>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            min="0"
+                          <CurrencyInput
+                            value={field.value}
+                            onValueChange={field.onChange}
                             className="h-8 text-sm"
-                            {...field}
-                            onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
                           />
                         </FormControl>
                       </FormItem>
@@ -645,13 +635,10 @@ export function FlexiblePaymentDialog({
                       <FormItem>
                         <FormLabel className="text-xs">Principal</FormLabel>
                         <FormControl>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            min="0"
+                          <CurrencyInput
+                            value={field.value}
+                            onValueChange={field.onChange}
                             className="h-8 text-sm"
-                            {...field}
-                            onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
                           />
                         </FormControl>
                       </FormItem>
@@ -703,13 +690,10 @@ export function FlexiblePaymentDialog({
                           <FormItem>
                             <FormLabel className="text-xs">Desc. Multa</FormLabel>
                             <FormControl>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                min="0"
+                              <CurrencyInput
+                                value={field.value}
+                                onValueChange={field.onChange}
                                 className="h-8 text-sm"
-                                {...field}
-                                onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
                               />
                             </FormControl>
                           </FormItem>
@@ -722,13 +706,10 @@ export function FlexiblePaymentDialog({
                           <FormItem>
                             <FormLabel className="text-xs">Desc. Mora</FormLabel>
                             <FormControl>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                min="0"
+                              <CurrencyInput
+                                value={field.value}
+                                onValueChange={field.onChange}
                                 className="h-8 text-sm"
-                                {...field}
-                                onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
                               />
                             </FormControl>
                           </FormItem>
@@ -741,13 +722,10 @@ export function FlexiblePaymentDialog({
                           <FormItem>
                             <FormLabel className="text-xs">Desc. Juros Op.</FormLabel>
                             <FormControl>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                min="0"
+                              <CurrencyInput
+                                value={field.value}
+                                onValueChange={field.onChange}
                                 className="h-8 text-sm"
-                                {...field}
-                                onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
                               />
                             </FormControl>
                           </FormItem>
@@ -760,13 +738,10 @@ export function FlexiblePaymentDialog({
                           <FormItem>
                             <FormLabel className="text-xs">Desc. Principal</FormLabel>
                             <FormControl>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                min="0"
+                              <CurrencyInput
+                                value={field.value}
+                                onValueChange={field.onChange}
                                 className="h-8 text-sm"
-                                {...field}
-                                onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
                               />
                             </FormControl>
                           </FormItem>
