@@ -127,19 +127,10 @@ export function useFlexiblePaymentV2() {
       const principalRemaining = Math.max(0, dueResult.breakdown.principal - allocation.principal - discounts.principal);
       const totalRemaining = penaltyRemaining + interestRemaining + principalRemaining;
 
-      // Determinar novo status
-      let newStatus: ReceivableStatus;
-      if (totalRemaining <= 0.01) {
-        newStatus = 'PAGO';
-      } else if (amountTotal > 0) {
-        newStatus = 'PARCIAL';
-      } else if (dueResult.isOverdue) {
-        newStatus = 'ATRASADO';
-      } else {
-        newStatus = 'EM_ABERTO';
-      }
-
-      const isPaidInFull = newStatus === 'PAGO';
+      // New rule: any payment always marks the original as PAGO
+      // If there's remaining balance, it MUST be deferred to a new installment
+      const newStatus: ReceivableStatus = 'PAGO';
+      const isPaidInFull = true; // Always true under new rule
       const newAmountPaid = (receivable.amount_paid ?? 0) + amountTotal;
 
       // 1. Inserir registro de pagamento com alocação e descontos
@@ -168,7 +159,7 @@ export function useFlexiblePaymentV2() {
 
       if (paymentError) throw paymentError;
 
-      // 2. Atualizar receivable
+      // 2. Atualizar receivable — SEMPRE como PAGO
       const shouldApplyPenalty = dueResult.penaltyCurrent > 0 || receivable.penalty_applied;
       
       const receivableUpdate: Record<string, unknown> = {
@@ -176,14 +167,12 @@ export function useFlexiblePaymentV2() {
         penalty_amount: dueResult.totalPenalty,
         interest_accrued: dueResult.totalInterest,
         last_interest_calc_at: paymentDate.toISOString().split('T')[0],
-        status: newStatus,
+        status: 'PAGO' as ReceivableStatus,
         penalty_applied: shouldApplyPenalty,
+        paid_at: paymentDate.toISOString(),
+        payment_method: paymentMethod,
+        accrual_frozen_at: paymentDate.toISOString().split('T')[0],
       };
-
-      if (isPaidInFull) {
-        receivableUpdate.paid_at = paymentDate.toISOString();
-        receivableUpdate.payment_method = paymentMethod;
-      }
 
       const { error: updateError } = await supabase
         .from('receivables')
@@ -265,34 +254,17 @@ export function useFlexiblePaymentV2() {
         
         newReceivableId = newReceivable?.id ?? null;
 
-        // Update original installment — adjust to reflect what STAYS (avoid duplication)
-        const saldoQueFica = totalRemaining - defer.amount;
-        const isFullyDeferred = saldoQueFica <= 0.01;
-        const originalStatus: ReceivableStatus = isFullyDeferred ? 'RENEGOCIADA' : 'PARCIAL';
-
+        // Update original — under new rule, original is ALWAYS PAGO (saldo 0)
         const renegotiationNote = `Parcela reemitida para ${newInstallmentNumber} (${newDueDate.toISOString().split('T')[0]}): Principal R$ ${deferAllocation.carriedPrincipal.toFixed(2)} + Multa R$ ${deferAllocation.carriedPenalty.toFixed(2)} + Juros R$ ${deferAllocation.carriedInterest.toFixed(2)}`;
         
-        const originalUpdate: Record<string, unknown> = {
-          renegotiated_to_receivable_id: newReceivableId,
-          notes: receivable.notes 
-            ? `${receivable.notes}\n${renegotiationNote}` 
-            : renegotiationNote,
-          status: originalStatus,
-          // Adjust the original receivable's amount to what STAYS
-          amount: deferAllocation.remainingPrincipal,
-          carried_penalty_amount: deferAllocation.remainingPenalty,
-          carried_interest_amount: deferAllocation.remainingInterest,
-        };
-
-        // Only freeze accrual if fully deferred (nothing stays)
-        if (isFullyDeferred) {
-          originalUpdate.accrual_frozen_at = paymentDate.toISOString().split('T')[0];
-          originalUpdate.paid_at = paymentDate.toISOString();
-        }
-
         await supabase
           .from('receivables')
-          .update(originalUpdate)
+          .update({
+            renegotiated_to_receivable_id: newReceivableId,
+            notes: receivable.notes 
+              ? `${receivable.notes}\n${renegotiationNote}` 
+              : renegotiationNote,
+          })
           .eq('id', receivable.id);
       }
 
@@ -318,18 +290,13 @@ export function useFlexiblePaymentV2() {
       
       if (result.newReceivableId) {
         toast({
-          title: 'Pagamento registrado',
-          description: `Saldo postergado para nova parcela.`,
-        });
-      } else if (result.isPaidInFull) {
-        toast({
           title: 'Parcela quitada!',
-          description: 'O pagamento foi registrado com sucesso.',
+          description: `Saldo restante postergado para nova parcela.`,
         });
       } else {
         toast({
-          title: 'Pagamento parcial registrado',
-          description: 'O saldo restante continua em aberto.',
+          title: 'Parcela quitada!',
+          description: 'O pagamento foi registrado com sucesso.',
         });
       }
     },
