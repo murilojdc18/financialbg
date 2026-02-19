@@ -10,6 +10,7 @@ import {
   DeferPriority,
 } from '@/lib/receivable-calculator';
 import { ReceivableStatus, PaymentMethod } from '@/types/database';
+import { ContractInterestBreakdown } from '@/lib/contract-interest-calculator';
 
 export interface ReceivableForPayment {
   id: string;
@@ -67,6 +68,10 @@ export interface FlexiblePaymentV2Input {
     toDate: Date;
     priority?: DeferPriority;
   };
+  /** When true, creates a COMPLETE copy of the current installment instead of just the remainder */
+  isInterestOnlyPayment?: boolean;
+  /** Schedule breakdown for the current installment (needed for interest-only reissue) */
+  scheduleBreakdown?: ContractInterestBreakdown | null;
 }
 
 /**
@@ -74,6 +79,7 @@ export interface FlexiblePaymentV2Input {
  * - Alocação editável (admin define onde vai cada centavo)
  * - Descontos/isenções negociadas
  * - Postergação com valor customizado
+ * - Modo "pagou só juros" → reemite parcela completa
  */
 export function useFlexiblePaymentV2() {
   const queryClient = useQueryClient();
@@ -92,7 +98,9 @@ export function useFlexiblePaymentV2() {
         note, 
         allocation, 
         discounts, 
-        defer 
+        defer,
+        isInterestOnlyPayment,
+        scheduleBreakdown,
       } = input;
       
       // Configuração de juros/multa da operação
@@ -127,10 +135,8 @@ export function useFlexiblePaymentV2() {
       const principalRemaining = Math.max(0, dueResult.breakdown.principal - allocation.principal - discounts.principal);
       const totalRemaining = penaltyRemaining + interestRemaining + principalRemaining;
 
-      // New rule: any payment always marks the original as PAGO
-      // If there's remaining balance, it MUST be deferred to a new installment
+      // Any payment always marks the original as PAGO
       const newStatus: ReceivableStatus = 'PAGO';
-      const isPaidInFull = true; // Always true under new rule
       const newAmountPaid = (receivable.amount_paid ?? 0) + amountTotal;
 
       // 1. Inserir registro de pagamento com alocação e descontos
@@ -184,24 +190,12 @@ export function useFlexiblePaymentV2() {
       // 3. Reemitir saldo se solicitado (criar nova parcela como N+1)
       let newReceivableId: string | null = null;
       
-      if (defer && defer.amount > 0.01 && !isPaidInFull) {
-        // Alocar o valor a postergar com prioridade configurável
-        const deferAllocation = allocateDeferToComponents(
-          defer.amount,
-          penaltyRemaining,
-          interestRemaining,
-          principalRemaining,
-          defer.priority || 'principal'
-        );
-        
-        // Data de vencimento da nova parcela (vem do DatePicker)
+      if (defer && defer.amount > 0.01) {
         const newDueDate = defer.toDate;
-        
-        // Número da nova parcela = N+1 (próxima após a atual)
         const currentN = receivable.installment_number;
         const newInstallmentNumber = currentN + 1;
 
-        // ====== SHIFT FUTURE INSTALLMENTS ======
+        // ====== SHIFT FUTURE INSTALLMENTS (descending order to avoid conflicts) ======
         const { data: futureInstallments, error: fetchError } = await supabase
           .from('receivables')
           .select('id, installment_number, due_date')
@@ -229,6 +223,32 @@ export function useFlexiblePaymentV2() {
           }
         }
 
+        // Determine new installment values based on payment mode
+        let newInstallmentAmount: number;
+        let newCarriedPenalty = 0;
+        let newCarriedInterest = 0;
+        let renegotiationNote: string;
+
+        if (isInterestOnlyPayment && scheduleBreakdown && scheduleBreakdown.installmentTotal > 0) {
+          // ===== INTEREST-ONLY: Reissue a COMPLETE copy of the current installment =====
+          // The amortization wasn't paid, so we reissue the same installment total
+          newInstallmentAmount = scheduleBreakdown.installmentTotal;
+          renegotiationNote = `Pagamento somente de juros. Parcela completa reemitida como ${newInstallmentNumber}ª (${newDueDate.toISOString().split('T')[0]}): Juros Contratual R$ ${scheduleBreakdown.contractInterest.toFixed(2)} + Amortização R$ ${scheduleBreakdown.amortization.toFixed(2)} = Total R$ ${scheduleBreakdown.installmentTotal.toFixed(2)}`;
+        } else {
+          // ===== STANDARD DEFER: carry only the remaining balance =====
+          const deferAllocation = allocateDeferToComponents(
+            defer.amount,
+            penaltyRemaining,
+            interestRemaining,
+            principalRemaining,
+            defer.priority || 'principal'
+          );
+          newInstallmentAmount = deferAllocation.carriedPrincipal;
+          newCarriedPenalty = deferAllocation.carriedPenalty;
+          newCarriedInterest = deferAllocation.carriedInterest;
+          renegotiationNote = `Parcela reemitida para ${newInstallmentNumber} (${newDueDate.toISOString().split('T')[0]}): Principal R$ ${deferAllocation.carriedPrincipal.toFixed(2)} + Multa R$ ${deferAllocation.carriedPenalty.toFixed(2)} + Juros R$ ${deferAllocation.carriedInterest.toFixed(2)}`;
+        }
+
         // Insert new installment as N+1
         const { data: newReceivable, error: insertError } = await supabase
           .from('receivables')
@@ -237,14 +257,14 @@ export function useFlexiblePaymentV2() {
             client_id: receivable.client_id,
             installment_number: newInstallmentNumber,
             due_date: newDueDate.toISOString().split('T')[0],
-            amount: deferAllocation.carriedPrincipal,
+            amount: newInstallmentAmount,
             status: 'EM_ABERTO' as ReceivableStatus,
             amount_paid: 0,
             penalty_applied: false,
             penalty_amount: 0,
             interest_accrued: 0,
-            carried_penalty_amount: deferAllocation.carriedPenalty,
-            carried_interest_amount: deferAllocation.carriedInterest,
+            carried_penalty_amount: newCarriedPenalty,
+            carried_interest_amount: newCarriedInterest,
             renegotiated_from_receivable_id: receivable.id,
           })
           .select('id')
@@ -254,9 +274,7 @@ export function useFlexiblePaymentV2() {
         
         newReceivableId = newReceivable?.id ?? null;
 
-        // Update original — under new rule, original is ALWAYS PAGO (saldo 0)
-        const renegotiationNote = `Parcela reemitida para ${newInstallmentNumber} (${newDueDate.toISOString().split('T')[0]}): Principal R$ ${deferAllocation.carriedPrincipal.toFixed(2)} + Multa R$ ${deferAllocation.carriedPenalty.toFixed(2)} + Juros R$ ${deferAllocation.carriedInterest.toFixed(2)}`;
-        
+        // Update original with renegotiation link
         await supabase
           .from('receivables')
           .update({
@@ -274,7 +292,7 @@ export function useFlexiblePaymentV2() {
         allocation,
         discounts,
         newStatus,
-        isPaidInFull,
+        isInterestOnlyPayment: isInterestOnlyPayment ?? false,
         saldoRestante: {
           principal: principalRemaining,
           penalty: penaltyRemaining,
@@ -291,7 +309,9 @@ export function useFlexiblePaymentV2() {
       if (result.newReceivableId) {
         toast({
           title: 'Parcela quitada!',
-          description: `Saldo restante postergado para nova parcela.`,
+          description: result.isInterestOnlyPayment
+            ? 'Pagamento de juros registrado. Parcela completa reemitida.'
+            : 'Saldo restante postergado para nova parcela.',
         });
       } else {
         toast({
