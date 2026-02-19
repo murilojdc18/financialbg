@@ -22,6 +22,7 @@ import {
   Loader2,
   Wallet,
   Trash2,
+  Printer,
 } from "lucide-react";
 import { useOperation } from "@/hooks/useOperations";
 import { formatCurrency, formatPercent, calculateLoan } from "@/lib/loan-calculator";
@@ -90,13 +91,19 @@ export default function OperacaoDetalhes() {
             <ArrowLeft className="h-4 w-4 mr-2" />
             Voltar
           </Button>
-          <Button
-            variant="destructive"
-            onClick={() => setDeleteDialogOpen(true)}
-          >
-            <Trash2 className="h-4 w-4 mr-2" />
-            Excluir operação
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => navigate(`/operacoes/${id}/print`)}>
+              <Printer className="h-4 w-4 mr-2" />
+              Preview Cliente
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => setDeleteDialogOpen(true)}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Excluir operação
+            </Button>
+          </div>
         </div>
 
         {/* Client and Operation Info - Two Column Layout */}
