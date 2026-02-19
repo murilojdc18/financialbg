@@ -49,7 +49,6 @@ import { Calendar } from "@/components/ui/calendar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -289,16 +288,10 @@ export function FlexiblePaymentDialog({
     };
   }, [fourComponentDue, watchAllocPenalty, watchAllocLateInterest, watchAllocContractInterest, watchAllocPrincipal, watchDiscountPenalty, watchDiscountLateInterest, watchDiscountContractInterest, watchDiscountPrincipal]);
 
-  // Valor que fica na parcela
-  const valorQueFica = useMemo(() => {
-    if (watchDeferOption !== "defer") return balanceBreakdown.total;
-    return Math.max(0, Math.round((balanceBreakdown.total - (watchCustomDeferAmount || 0)) * 100) / 100);
-  }, [balanceBreakdown.total, watchDeferOption, watchCustomDeferAmount]);
-
-  // Atualizar customDeferAmount quando saldo muda
+  // When balance > 0, auto-force defer and set customDeferAmount to 100%
   useEffect(() => {
-    const currentDefer = form.getValues("customDeferAmount");
-    if (currentDefer > balanceBreakdown.total) {
+    if (balanceBreakdown.total > 0.01) {
+      form.setValue("deferOption", "defer");
       form.setValue("customDeferAmount", balanceBreakdown.total);
     }
   }, [balanceBreakdown.total, form]);
@@ -329,14 +322,19 @@ export function FlexiblePaymentDialog({
       errors.push(`Soma da alocação (${formatCurrency(totalAllocated)}) deve ser igual ao valor recebido (${formatCurrency(watchAmountTotal || 0)})`);
     }
     
-    if (watchDeferOption === "defer" && (watchCustomDeferAmount || 0) > balanceBreakdown.total) {
-      errors.push("Valor a postergar não pode ser maior que o saldo restante");
+    // New rule: if there's remaining balance, defer is mandatory and must cover 100%
+    if (balanceBreakdown.total > 0.01) {
+      if (watchDeferOption !== "defer") {
+        errors.push(`Existe saldo remanescente de ${formatCurrency(balanceBreakdown.total)}. Para concluir o pagamento, você precisa postergar esse saldo para uma nova parcela.`);
+      } else if (Math.abs((watchCustomDeferAmount || 0) - balanceBreakdown.total) > 0.01) {
+        errors.push(`O valor a postergar (${formatCurrency(watchCustomDeferAmount || 0)}) deve ser igual ao saldo remanescente (${formatCurrency(balanceBreakdown.total)}). Todo o saldo deve ir para a nova parcela.`);
+      }
     }
     
     return errors;
   }, [allocationDifference, totalAllocated, watchAmountTotal, watchDeferOption, watchCustomDeferAmount, balanceBreakdown.total]);
 
-  const canSubmit = validationErrors.length === 0 && ((watchAmountTotal || 0) > 0 || watchDeferOption === "defer");
+  const canSubmit = validationErrors.length === 0 && ((watchAmountTotal || 0) > 0);
 
   // Sync deferDays -> deferToDate
   useEffect(() => {
@@ -768,8 +766,15 @@ export function FlexiblePaymentDialog({
               </Collapsible>
 
               {/* ========== SALDO REMANESCENTE (SEMPRE VISÍVEL) — 4 COMPONENTES ========== */}
-              <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
-                <p className="font-medium text-sm">Saldo remanescente (atualizado):</p>
+              <div className={cn(
+                "rounded-lg border p-4 space-y-2",
+                balanceBreakdown.total > 0.01 ? "bg-amber-50 border-amber-300 dark:bg-amber-950/30 dark:border-amber-700" : "bg-muted/30"
+              )}>
+                <p className="font-medium text-sm">
+                  {balanceBreakdown.total > 0.01 
+                    ? "⚠️ Saldo que será postergado (obrigatório):" 
+                    : "Saldo remanescente (atualizado):"}
+                </p>
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div className="text-center p-2 rounded bg-background border">
                     <p className="text-xs text-muted-foreground">Juros Operação</p>
@@ -797,105 +802,39 @@ export function FlexiblePaymentDialog({
                 </div>
               </div>
 
-              {/* Opções para saldo remanescente */}
+              {/* Postergação obrigatória quando há saldo */}
               {balanceBreakdown.total > 0.01 && (
                 <>
-                  <div className="rounded-md border p-4 space-y-4">
-                    <FormField
-                      control={form.control}
-                      name="deferOption"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="text-sm font-medium">O que fazer com o saldo remanescente?</FormLabel>
-                          <FormControl>
-                            <RadioGroup
-                              onValueChange={field.onChange}
-                              value={field.value}
-                              className="flex flex-col space-y-2"
-                            >
-                              <div className="flex items-center space-x-2">
-                                <RadioGroupItem value="keep" id="keep" />
-                                <Label htmlFor="keep" className="text-sm font-normal cursor-pointer">
-                                  Manter nesta parcela (fica em aberto)
-                                </Label>
-                              </div>
-                              <div className="flex items-center space-x-2">
-                                <RadioGroupItem value="defer" id="defer" />
-                                <Label htmlFor="defer" className="text-sm font-normal cursor-pointer">
-                                  Criar outra parcela (reemitir)
-                                </Label>
-                              </div>
-                            </RadioGroup>
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
+                  {/* Warning banner */}
+                  <div className="rounded-md border border-amber-400 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700 p-3 text-sm">
+                    <p className="font-medium text-amber-800 dark:text-amber-300 flex items-center gap-1">
+                      <Info className="h-4 w-4" />
+                      Para concluir, postergue o saldo remanescente.
+                    </p>
+                    <p className="text-amber-700 dark:text-amber-400 text-xs mt-1">
+                      Todo pagamento encerra a parcela atual como PAGO. O saldo restante será movido para uma nova parcela.
+                    </p>
+                  </div>
 
-                    {watchDeferOption === "defer" && (
-                      <div className="space-y-4 pt-3 border-t">
+                  <div className="rounded-md border p-4 space-y-4">
+                    <p className="text-sm font-medium">Postergar saldo para nova parcela</p>
+
+                    <div className="space-y-4">
                         {/* Info box */}
                         <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-sm space-y-1">
                           <p className="font-medium text-primary flex items-center gap-1">
                             <Info className="h-4 w-4" />
-                            Parcela será criada como PRÓXIMA ({receivable.installment_number + 1}ª)
+                            Nova parcela será criada como {receivable.installment_number + 1}ª
                           </p>
                           <p className="text-muted-foreground text-xs">
                             Parcelas futuras serão renumeradas (+1) e terão vencimento empurrado em 1 mês.
                           </p>
                         </div>
 
-                        {/* Valor a postergar e valor que fica */}
-                        <div className="grid grid-cols-2 gap-3">
-                          <FormField
-                            control={form.control}
-                            name="customDeferAmount"
-                            render={({ field }) => (
-                              <FormItem>
-                                <div className="flex items-center justify-between">
-                                  <FormLabel className="text-sm">Valor a postergar</FormLabel>
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-5 text-xs px-1"
-                                    onClick={() => form.setValue("customDeferAmount", balanceBreakdown.total)}
-                                  >
-                                    100%
-                                  </Button>
-                                </div>
-                                <FormControl>
-                                  <Input
-                                    type="number"
-                                    step="0.01"
-                                    min="0"
-                                    max={balanceBreakdown.total}
-                                    className="h-8"
-                                    {...field}
-                                    onChange={(e) => {
-                                      const val = Math.min(parseFloat(e.target.value) || 0, balanceBreakdown.total);
-                                      field.onChange(Math.round(val * 100) / 100);
-                                    }}
-                                  />
-                                </FormControl>
-                              </FormItem>
-                            )}
-                          />
-                          <FormItem>
-                            <FormLabel className="text-sm">Fica nesta parcela</FormLabel>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              max={balanceBreakdown.total}
-                              className="h-8"
-                              value={valorQueFica}
-                              onChange={(e) => {
-                                const val = Math.min(parseFloat(e.target.value) || 0, balanceBreakdown.total);
-                                const newDefer = Math.max(0, Math.round((balanceBreakdown.total - val) * 100) / 100);
-                                form.setValue("customDeferAmount", newDefer);
-                              }}
-                            />
-                          </FormItem>
+                        {/* Valor a postergar — locked to 100% */}
+                        <div className="flex justify-between text-sm p-2 bg-muted rounded">
+                          <span className="font-medium">Valor a postergar:</span>
+                          <span className="font-semibold text-primary">{formatCurrency(balanceBreakdown.total)}</span>
                         </div>
 
                         {/* Prioridade de postergação */}
@@ -936,24 +875,6 @@ export function FlexiblePaymentDialog({
                                 <span className="text-primary">{formatCurrency(deferAllocationPreview.totalCarried)}</span>
                               </div>
                             </div>
-
-                            {deferAllocationPreview.totalRemaining > 0.01 && (
-                              <>
-                                <Separator className="my-1" />
-                                <div className="space-y-1">
-                                  <p className="font-medium text-muted-foreground text-xs">Fica nesta parcela ({receivable.installment_number}ª):</p>
-                                  <div className="flex justify-between text-xs">
-                                    <span>Principal: {formatCurrency(deferAllocationPreview.remainingPrincipal)}</span>
-                                    <span>Multa: {formatCurrency(deferAllocationPreview.remainingPenalty)}</span>
-                                    <span>Juros: {formatCurrency(deferAllocationPreview.remainingInterest)}</span>
-                                  </div>
-                                  <div className="flex justify-between font-medium">
-                                    <span>Total que fica:</span>
-                                    <span>{formatCurrency(deferAllocationPreview.totalRemaining)}</span>
-                                  </div>
-                                </div>
-                              </>
-                            )}
                           </div>
                         )}
 
@@ -1033,7 +954,6 @@ export function FlexiblePaymentDialog({
                           )}
                         />
                       </div>
-                    )}
                   </div>
                 </>
               )}
