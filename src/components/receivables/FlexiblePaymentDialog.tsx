@@ -54,6 +54,7 @@ import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/loan-calculator";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { 
   calculateReceivableDue, 
   allocateDeferToComponents,
@@ -68,6 +69,23 @@ import {
 } from "@/lib/contract-interest-calculator";
 import { PaymentMethod } from "@/types/database";
 import { ReceivableForPayment, useFlexiblePaymentV2 } from "@/hooks/useFlexiblePaymentV2";
+
+/** Safe number: returns 0 for NaN, undefined, null, Infinity */
+function safeNumber(n: unknown): number {
+  if (typeof n === 'number' && isFinite(n)) return n;
+  return 0;
+}
+
+/** Safe formatCurrency wrapper */
+function safeCurrency(n: unknown): string {
+  return formatCurrency(safeNumber(n));
+}
+
+/** Safe round to 2 decimal places */
+function round2(n: number): number {
+  const val = safeNumber(n);
+  return Math.round(val * 100) / 100;
+}
 
 // Schema com validação — 4 campos de alocação
 const formSchema = z.object({
@@ -122,6 +140,32 @@ export function FlexiblePaymentDialog({
   receivable,
   onSuccess,
 }: FlexiblePaymentDialogProps) {
+  const handleClose = useCallback(() => {
+    onOpenChange(false);
+  }, [onOpenChange]);
+
+  return (
+    <ErrorBoundary
+      onClose={handleClose}
+      fallbackMessage="Ocorreu um erro no cálculo. Verifique os valores e tente novamente."
+      variant="inline"
+    >
+      <FlexiblePaymentDialogInner
+        open={open}
+        onOpenChange={onOpenChange}
+        receivable={receivable}
+        onSuccess={onSuccess}
+      />
+    </ErrorBoundary>
+  );
+}
+
+function FlexiblePaymentDialogInner({
+  open,
+  onOpenChange,
+  receivable,
+  onSuccess,
+}: FlexiblePaymentDialogProps) {
   const flexiblePayment = useFlexiblePaymentV2();
   const [dueResult, setDueResult] = useState<ReceivableDueResult | null>(null);
   const [scheduleBreakdown, setScheduleBreakdown] = useState<ContractInterestBreakdown | null>(null);
@@ -152,43 +196,48 @@ export function FlexiblePaymentDialog({
     },
   });
 
-  const watchAmountTotal = form.watch("amountTotal");
+  const watchAmountTotal = safeNumber(form.watch("amountTotal"));
   const watchPaidAt = form.watch("paidAt");
-  const watchAllocPenalty = form.watch("allocPenalty");
-  const watchAllocLateInterest = form.watch("allocLateInterest");
-  const watchAllocContractInterest = form.watch("allocContractInterest");
-  const watchAllocPrincipal = form.watch("allocPrincipal");
-  const watchDiscountPenalty = form.watch("discountPenalty");
-  const watchDiscountLateInterest = form.watch("discountLateInterest");
-  const watchDiscountContractInterest = form.watch("discountContractInterest");
-  const watchDiscountPrincipal = form.watch("discountPrincipal");
+  const watchAllocPenalty = safeNumber(form.watch("allocPenalty"));
+  const watchAllocLateInterest = safeNumber(form.watch("allocLateInterest"));
+  const watchAllocContractInterest = safeNumber(form.watch("allocContractInterest"));
+  const watchAllocPrincipal = safeNumber(form.watch("allocPrincipal"));
+  const watchDiscountPenalty = safeNumber(form.watch("discountPenalty"));
+  const watchDiscountLateInterest = safeNumber(form.watch("discountLateInterest"));
+  const watchDiscountContractInterest = safeNumber(form.watch("discountContractInterest"));
+  const watchDiscountPrincipal = safeNumber(form.watch("discountPrincipal"));
   const watchDeferOption = form.watch("deferOption");
   const watchDeferDays = form.watch("deferDays");
   const watchDeferToDate = form.watch("deferToDate");
-  const watchCustomDeferAmount = form.watch("customDeferAmount");
+  const watchCustomDeferAmount = safeNumber(form.watch("customDeferAmount"));
   const watchDeferPriority = form.watch("deferPriority");
-  const watchFinalNewAmount = form.watch("finalNewInstallmentAmount");
+  const watchFinalNewAmount = safeNumber(form.watch("finalNewInstallmentAmount"));
   const watchAdjustmentReason = form.watch("adjustmentReason");
 
   // Calculate schedule breakdown for contract interest
   useEffect(() => {
     if (!receivable || !open) return;
-    const ops = receivable.operations;
-    if (ops.principal > 0 && ops.term_months > 0) {
-      const breakdown = getContractInterestForInstallment(
-        {
-          principal: ops.principal,
-          rate_monthly: ops.rate_monthly,
-          term_months: ops.term_months,
-          system: ops.system,
-          start_date: ops.start_date,
-          fee_fixed: ops.fee_fixed,
-          fee_insurance: ops.fee_insurance,
-        },
-        receivable.installment_number
-      );
-      setScheduleBreakdown(breakdown);
-    } else {
+    try {
+      const ops = receivable.operations;
+      if (ops.principal > 0 && ops.term_months > 0) {
+        const breakdown = getContractInterestForInstallment(
+          {
+            principal: ops.principal,
+            rate_monthly: ops.rate_monthly,
+            term_months: ops.term_months,
+            system: ops.system,
+            start_date: ops.start_date,
+            fee_fixed: ops.fee_fixed,
+            fee_insurance: ops.fee_insurance,
+          },
+          receivable.installment_number
+        );
+        setScheduleBreakdown(breakdown);
+      } else {
+        setScheduleBreakdown(null);
+      }
+    } catch (err) {
+      console.error("[FlexiblePayment] Error calculating schedule breakdown:", err);
       setScheduleBreakdown(null);
     }
   }, [receivable, open]);
@@ -197,146 +246,151 @@ export function FlexiblePaymentDialog({
   useEffect(() => {
     if (!receivable || !open) return;
 
-    const config: LateFeeConfig = {
-      lateGraceDays: receivable.operations.late_grace_days ?? 0,
-      latePenaltyPercent: Number(receivable.operations.late_penalty_percent) ?? 10,
-      lateInterestDailyPercent: Number(receivable.operations.late_interest_daily_percent) ?? 0.5,
-    };
+    try {
+      const config: LateFeeConfig = {
+        lateGraceDays: safeNumber(receivable.operations.late_grace_days),
+        latePenaltyPercent: safeNumber(receivable.operations.late_penalty_percent) || 10,
+        lateInterestDailyPercent: safeNumber(receivable.operations.late_interest_daily_percent) || 0.5,
+      };
 
-    const result = calculateReceivableDue(
-      {
-        amount: receivable.amount,
-        amountPaid: receivable.amount_paid ?? 0,
-        penaltyApplied: receivable.penalty_applied ?? false,
-        penaltyAmount: receivable.penalty_amount ?? 0,
-        interestAccrued: receivable.interest_accrued ?? 0,
-        carriedPenaltyAmount: receivable.carried_penalty_amount ?? 0,
-        carriedInterestAmount: receivable.carried_interest_amount ?? 0,
-        accrualFrozenAt: receivable.accrual_frozen_at,
-        dueDate: receivable.due_date,
-      },
-      config,
-      watchPaidAt
-    );
+      const result = calculateReceivableDue(
+        {
+          amount: safeNumber(receivable.amount),
+          amountPaid: safeNumber(receivable.amount_paid),
+          penaltyApplied: receivable.penalty_applied ?? false,
+          penaltyAmount: safeNumber(receivable.penalty_amount),
+          interestAccrued: safeNumber(receivable.interest_accrued),
+          carriedPenaltyAmount: safeNumber(receivable.carried_penalty_amount),
+          carriedInterestAmount: safeNumber(receivable.carried_interest_amount),
+          accrualFrozenAt: receivable.accrual_frozen_at,
+          dueDate: receivable.due_date,
+        },
+        config,
+        watchPaidAt
+      );
 
-    setDueResult(result);
+      setDueResult(result);
+    } catch (err) {
+      console.error("[FlexiblePayment] Error calculating due result:", err);
+      setDueResult(null);
+    }
   }, [receivable, open, watchPaidAt]);
 
   // 4-component due breakdown
   const fourComponentDue = useMemo<FourComponentDue | null>(() => {
     if (!dueResult) return null;
     
-    // Split the "principal" from receivable-calculator into contract interest + amortization
-    const split = splitPrincipalIntoComponents(
-      dueResult.breakdown.principal,
-      scheduleBreakdown ?? { contractInterest: 0, amortization: 0, installmentTotal: 0 }
-    );
+    try {
+      const split = splitPrincipalIntoComponents(
+        safeNumber(dueResult.breakdown.principal),
+        scheduleBreakdown ?? { contractInterest: 0, amortization: 0, installmentTotal: 0 }
+      );
 
-    return {
-      contractInterest: split.contractInterestRemaining,
-      lateInterest: dueResult.breakdown.interest,
-      penalty: dueResult.breakdown.penalty,
-      amortization: split.amortizationRemaining,
-      total: dueResult.breakdown.total,
-    };
+      return {
+        contractInterest: safeNumber(split.contractInterestRemaining),
+        lateInterest: safeNumber(dueResult.breakdown.interest),
+        penalty: safeNumber(dueResult.breakdown.penalty),
+        amortization: safeNumber(split.amortizationRemaining),
+        total: safeNumber(dueResult.breakdown.total),
+      };
+    } catch (err) {
+      console.error("[FlexiblePayment] Error in fourComponentDue:", err);
+      return null;
+    }
   }, [dueResult, scheduleBreakdown]);
 
   // Detect "interest-only payment" mode
   const isInterestOnlyPayment = useMemo(() => {
     if (!fourComponentDue || !scheduleBreakdown) return false;
-    const allocPrincipal = watchAllocPrincipal || 0;
-    const allocContractInterest = watchAllocContractInterest || 0;
-    // Interest-only: paid contract interest but no principal, and there IS amortization due
-    return allocPrincipal < 0.01 && allocContractInterest > 0.01 && fourComponentDue.amortization > 0.01;
+    return watchAllocPrincipal < 0.01 && watchAllocContractInterest > 0.01 && fourComponentDue.amortization > 0.01;
   }, [watchAllocPrincipal, watchAllocContractInterest, fourComponentDue, scheduleBreakdown]);
 
   // Auto distribuir alocação — order: penalty -> late interest -> contract interest -> principal
   const handleAutoDistribute = useCallback(() => {
     if (!fourComponentDue) return;
     
-    const amount = watchAmountTotal || 0;
-    let remaining = amount;
+    let remaining = watchAmountTotal;
     
-    const penalty = Math.min(remaining, fourComponentDue.penalty);
+    const penalty = Math.min(remaining, safeNumber(fourComponentDue.penalty));
     remaining -= penalty;
     
-    const lateInterest = Math.min(remaining, fourComponentDue.lateInterest);
+    const lateInterest = Math.min(remaining, safeNumber(fourComponentDue.lateInterest));
     remaining -= lateInterest;
 
-    const contractInterest = Math.min(remaining, fourComponentDue.contractInterest);
+    const contractInterest = Math.min(remaining, safeNumber(fourComponentDue.contractInterest));
     remaining -= contractInterest;
     
-    const principal = Math.min(remaining, fourComponentDue.amortization);
+    const principal = Math.min(remaining, safeNumber(fourComponentDue.amortization));
     
-    form.setValue("allocPenalty", Math.round(penalty * 100) / 100);
-    form.setValue("allocLateInterest", Math.round(lateInterest * 100) / 100);
-    form.setValue("allocContractInterest", Math.round(contractInterest * 100) / 100);
-    form.setValue("allocPrincipal", Math.round(principal * 100) / 100);
+    form.setValue("allocPenalty", round2(penalty));
+    form.setValue("allocLateInterest", round2(lateInterest));
+    form.setValue("allocContractInterest", round2(contractInterest));
+    form.setValue("allocPrincipal", round2(principal));
   }, [fourComponentDue, watchAmountTotal, form]);
 
-  // Totais calculados
+  // Totais calculados — all via useMemo, NO useEffect setState
   const totalAllocated = useMemo(() => {
-    return (watchAllocPenalty || 0) + (watchAllocLateInterest || 0) + (watchAllocContractInterest || 0) + (watchAllocPrincipal || 0);
+    return round2(watchAllocPenalty + watchAllocLateInterest + watchAllocContractInterest + watchAllocPrincipal);
   }, [watchAllocPenalty, watchAllocLateInterest, watchAllocContractInterest, watchAllocPrincipal]);
 
   const allocationDifference = useMemo(() => {
-    return Math.round(((watchAmountTotal || 0) - totalAllocated) * 100) / 100;
+    return round2(watchAmountTotal - totalAllocated);
   }, [watchAmountTotal, totalAllocated]);
 
   const totalDiscount = useMemo(() => {
-    return (watchDiscountPenalty || 0) + (watchDiscountLateInterest || 0) + (watchDiscountContractInterest || 0) + (watchDiscountPrincipal || 0);
+    return round2(watchDiscountPenalty + watchDiscountLateInterest + watchDiscountContractInterest + watchDiscountPrincipal);
   }, [watchDiscountPenalty, watchDiscountLateInterest, watchDiscountContractInterest, watchDiscountPrincipal]);
 
   // Saldo restante após pagamento + descontos (REAL-TIME) — 4 components
   const balanceBreakdown = useMemo(() => {
     if (!fourComponentDue) return { penalty: 0, lateInterest: 0, contractInterest: 0, amortization: 0, total: 0 };
     
-    const penalty = Math.max(0, fourComponentDue.penalty - (watchAllocPenalty || 0) - (watchDiscountPenalty || 0));
-    const lateInterest = Math.max(0, fourComponentDue.lateInterest - (watchAllocLateInterest || 0) - (watchDiscountLateInterest || 0));
-    const contractInterest = Math.max(0, fourComponentDue.contractInterest - (watchAllocContractInterest || 0) - (watchDiscountContractInterest || 0));
-    const amortization = Math.max(0, fourComponentDue.amortization - (watchAllocPrincipal || 0) - (watchDiscountPrincipal || 0));
+    const penalty = round2(Math.max(0, safeNumber(fourComponentDue.penalty) - watchAllocPenalty - watchDiscountPenalty));
+    const lateInterest = round2(Math.max(0, safeNumber(fourComponentDue.lateInterest) - watchAllocLateInterest - watchDiscountLateInterest));
+    const contractInterest = round2(Math.max(0, safeNumber(fourComponentDue.contractInterest) - watchAllocContractInterest - watchDiscountContractInterest));
+    const amortization = round2(Math.max(0, safeNumber(fourComponentDue.amortization) - watchAllocPrincipal - watchDiscountPrincipal));
     
     return {
-      penalty: Math.round(penalty * 100) / 100,
-      lateInterest: Math.round(lateInterest * 100) / 100,
-      contractInterest: Math.round(contractInterest * 100) / 100,
-      amortization: Math.round(amortization * 100) / 100,
-      total: Math.round((penalty + lateInterest + contractInterest + amortization) * 100) / 100,
+      penalty,
+      lateInterest,
+      contractInterest,
+      amortization,
+      total: round2(penalty + lateInterest + contractInterest + amortization),
     };
   }, [fourComponentDue, watchAllocPenalty, watchAllocLateInterest, watchAllocContractInterest, watchAllocPrincipal, watchDiscountPenalty, watchDiscountLateInterest, watchDiscountContractInterest, watchDiscountPrincipal]);
 
   // When balance > 0, auto-force defer and set customDeferAmount + finalNewInstallmentAmount
+  // CRITICAL FIX: removed `form` from dependency array to prevent infinite loop
   useEffect(() => {
     if (balanceBreakdown.total > 0.01) {
       form.setValue("deferOption", "defer");
       let baseAmount: number;
       if (isInterestOnlyPayment && scheduleBreakdown) {
-        baseAmount = scheduleBreakdown.installmentTotal;
+        baseAmount = safeNumber(scheduleBreakdown.installmentTotal);
       } else {
         baseAmount = balanceBreakdown.total;
       }
       form.setValue("customDeferAmount", baseAmount);
       // Only set finalNewInstallmentAmount if it hasn't been manually changed
-      const currentFinal = form.getValues("finalNewInstallmentAmount");
+      const currentFinal = safeNumber(form.getValues("finalNewInstallmentAmount"));
       if (currentFinal < 0.01) {
         form.setValue("finalNewInstallmentAmount", baseAmount);
       }
     }
-  }, [balanceBreakdown.total, isInterestOnlyPayment, scheduleBreakdown, form]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [balanceBreakdown.total, isInterestOnlyPayment, scheduleBreakdown]);
 
   // Computed: base amount for new installment (read-only reference)
   const newInstallmentBaseAmount = useMemo(() => {
     if (isInterestOnlyPayment && scheduleBreakdown) {
-      return scheduleBreakdown.installmentTotal;
+      return safeNumber(scheduleBreakdown.installmentTotal);
     }
     return balanceBreakdown.total;
   }, [isInterestOnlyPayment, scheduleBreakdown, balanceBreakdown.total]);
 
   // Computed: adjustment = final - base
   const manualAdjustment = useMemo(() => {
-    const final_ = watchFinalNewAmount || 0;
-    const base_ = newInstallmentBaseAmount || 0;
-    return Math.round((final_ - base_) * 100) / 100;
+    return round2(watchFinalNewAmount - newInstallmentBaseAmount);
   }, [watchFinalNewAmount, newInstallmentBaseAmount]);
 
   // Need adjustment reason if adjustment != 0
@@ -346,17 +400,14 @@ export function FlexiblePaymentDialog({
   const deferAllocationPreview = useMemo(() => {
     if (watchDeferOption !== "defer") return null;
     if (isInterestOnlyPayment && scheduleBreakdown) {
-      // For interest-only, show the full installment breakdown
-      return null; // We'll show custom preview instead
+      return null;
     }
-    const deferAmount = watchCustomDeferAmount || 0;
-    if (deferAmount <= 0) return null;
+    if (watchCustomDeferAmount <= 0) return null;
     
-    // Combine lateInterest + contractInterest as "interest" for defer allocation
     const totalInterestRemaining = balanceBreakdown.lateInterest + balanceBreakdown.contractInterest;
     
     return allocateDeferToComponents(
-      deferAmount,
+      watchCustomDeferAmount,
       balanceBreakdown.penalty,
       totalInterestRemaining,
       balanceBreakdown.amortization,
@@ -368,18 +419,16 @@ export function FlexiblePaymentDialog({
   const validationErrors = useMemo(() => {
     const errors: string[] = [];
     
-    if ((watchAmountTotal || 0) > 0 && allocationDifference !== 0) {
-      errors.push(`Soma da alocação (${formatCurrency(totalAllocated)}) deve ser igual ao valor recebido (${formatCurrency(watchAmountTotal || 0)})`);
+    if (watchAmountTotal > 0 && allocationDifference !== 0) {
+      errors.push(`Soma da alocação (${safeCurrency(totalAllocated)}) deve ser igual ao valor recebido (${safeCurrency(watchAmountTotal)})`);
     }
     
-    // New rule: if there's remaining balance, defer is mandatory
     if (balanceBreakdown.total > 0.01) {
       if (watchDeferOption !== "defer") {
-        errors.push(`Existe saldo remanescente de ${formatCurrency(balanceBreakdown.total)}. Para concluir o pagamento, você precisa postergar esse saldo para uma nova parcela.`);
+        errors.push(`Existe saldo remanescente de ${safeCurrency(balanceBreakdown.total)}. Para concluir o pagamento, você precisa postergar esse saldo para uma nova parcela.`);
       }
     }
 
-    // If there's an adjustment, reason is required
     if (needsAdjustmentReason && !(watchAdjustmentReason && watchAdjustmentReason.trim().length > 0)) {
       errors.push('Informe o motivo do ajuste no valor da nova parcela.');
     }
@@ -387,7 +436,7 @@ export function FlexiblePaymentDialog({
     return errors;
   }, [allocationDifference, totalAllocated, watchAmountTotal, watchDeferOption, balanceBreakdown.total, needsAdjustmentReason, watchAdjustmentReason]);
 
-  const canSubmit = validationErrors.length === 0 && ((watchAmountTotal || 0) > 0) && (balanceBreakdown.total <= 0.01 || watchDeferOption === "defer");
+  const canSubmit = validationErrors.length === 0 && watchAmountTotal > 0 && (balanceBreakdown.total <= 0.01 || watchDeferOption === "defer");
 
   // Sync deferDays -> deferToDate
   useEffect(() => {
@@ -398,49 +447,55 @@ export function FlexiblePaymentDialog({
     if (!currentDeferDate || Math.abs(daysFromCurrentDate - (watchDeferDays || 30)) > 0) {
       form.setValue("deferToDate", addDays(paymentDate, watchDeferDays || 30));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watchDeferDays, watchPaidAt]);
 
   const handleSubmit = async (values: FormValues) => {
     if (!receivable || !canSubmit) return;
 
-    const adjustmentAmount = Math.round(((values.finalNewInstallmentAmount || 0) - newInstallmentBaseAmount) * 100) / 100;
+    try {
+      const adjustmentAmount = round2(safeNumber(values.finalNewInstallmentAmount) - newInstallmentBaseAmount);
 
-    await flexiblePayment.mutateAsync({
-      receivableId: receivable.id,
-      amountTotal: values.amountTotal,
-      paymentDate: values.paidAt,
-      paymentMethod: values.paymentMethod as PaymentMethod,
-      note: values.note,
-      allocation: {
-        penalty: values.allocPenalty,
-        lateInterest: values.allocLateInterest,
-        contractInterest: values.allocContractInterest,
-        principal: values.allocPrincipal,
-      },
-      discounts: {
-        penalty: values.discountPenalty,
-        lateInterest: values.discountLateInterest,
-        contractInterest: values.discountContractInterest,
-        principal: values.discountPrincipal,
-      },
-      defer: values.deferOption === "defer" && (values.customDeferAmount || 0) > 0.01 ? {
-        amount: values.customDeferAmount,
-        toDate: values.deferToDate,
-        priority: values.deferPriority as DeferPriority,
-      } : undefined,
-      isInterestOnlyPayment,
-      scheduleBreakdown,
-      manualAdjustment: Math.abs(adjustmentAmount) > 0.01 ? {
-        amount: adjustmentAmount,
-        reason: values.adjustmentReason || '',
-        finalAmount: values.finalNewInstallmentAmount,
-      } : undefined,
-      receivable,
-    });
+      await flexiblePayment.mutateAsync({
+        receivableId: receivable.id,
+        amountTotal: safeNumber(values.amountTotal),
+        paymentDate: values.paidAt,
+        paymentMethod: values.paymentMethod as PaymentMethod,
+        note: values.note,
+        allocation: {
+          penalty: safeNumber(values.allocPenalty),
+          lateInterest: safeNumber(values.allocLateInterest),
+          contractInterest: safeNumber(values.allocContractInterest),
+          principal: safeNumber(values.allocPrincipal),
+        },
+        discounts: {
+          penalty: safeNumber(values.discountPenalty),
+          lateInterest: safeNumber(values.discountLateInterest),
+          contractInterest: safeNumber(values.discountContractInterest),
+          principal: safeNumber(values.discountPrincipal),
+        },
+        defer: values.deferOption === "defer" && safeNumber(values.customDeferAmount) > 0.01 ? {
+          amount: safeNumber(values.customDeferAmount),
+          toDate: values.deferToDate,
+          priority: values.deferPriority as DeferPriority,
+        } : undefined,
+        isInterestOnlyPayment,
+        scheduleBreakdown,
+        manualAdjustment: Math.abs(adjustmentAmount) > 0.01 ? {
+          amount: adjustmentAmount,
+          reason: values.adjustmentReason || '',
+          finalAmount: safeNumber(values.finalNewInstallmentAmount),
+        } : undefined,
+        receivable,
+      });
 
-    onSuccess?.();
-    onOpenChange(false);
-    form.reset();
+      onSuccess?.();
+      onOpenChange(false);
+      form.reset();
+    } catch (err) {
+      console.error("[FlexiblePayment] Submit error:", err);
+      // Error toast is handled by the mutation's onError
+    }
   };
 
   const handleOpenChange = (newOpen: boolean) => {
@@ -455,7 +510,7 @@ export function FlexiblePaymentDialog({
 
   if (!receivable) return null;
 
-  const hasCarriedFees = (receivable.carried_penalty_amount ?? 0) > 0 || (receivable.carried_interest_amount ?? 0) > 0;
+  const hasCarriedFees = safeNumber(receivable.carried_penalty_amount) > 0 || safeNumber(receivable.carried_interest_amount) > 0;
 
   return (
     <TooltipProvider>
@@ -477,34 +532,34 @@ export function FlexiblePaymentDialog({
                   
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Juros da operação (contratual):</span>
-                    <span>{formatCurrency(fourComponentDue.contractInterest)}</span>
+                    <span>{safeCurrency(fourComponentDue.contractInterest)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className={cn("text-muted-foreground", dueResult.isOverdue && "text-destructive")}>
-                      Mora ({dueResult.daysOverdue} dias × {receivable.operations.late_interest_daily_percent}%/dia):
+                      Mora ({safeNumber(dueResult.daysOverdue)} dias × {safeNumber(receivable.operations.late_interest_daily_percent)}%/dia):
                     </span>
                     <span className={dueResult.isOverdue ? "text-destructive" : ""}>
-                      {formatCurrency(fourComponentDue.lateInterest)}
+                      {safeCurrency(fourComponentDue.lateInterest)}
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className={cn("text-muted-foreground", dueResult.isOverdue && "text-destructive")}>
-                      Multa ({receivable.operations.late_penalty_percent}%):
+                      Multa ({safeNumber(receivable.operations.late_penalty_percent)}%):
                     </span>
                     <span className={dueResult.isOverdue ? "text-destructive" : ""}>
-                      {formatCurrency(fourComponentDue.penalty)}
+                      {safeCurrency(fourComponentDue.penalty)}
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Principal (amortização):</span>
-                    <span>{formatCurrency(fourComponentDue.amortization)}</span>
+                    <span>{safeCurrency(fourComponentDue.amortization)}</span>
                   </div>
                   
                   {hasCarriedFees && (
                     <div className="text-xs text-amber-600 pt-1">
                       * Inclui encargos trazidos de renegociação
-                      {(receivable.carried_penalty_amount ?? 0) > 0 && ` (Multa: ${formatCurrency(receivable.carried_penalty_amount)})`}
-                      {(receivable.carried_interest_amount ?? 0) > 0 && ` (Juros: ${formatCurrency(receivable.carried_interest_amount)})`}
+                      {safeNumber(receivable.carried_penalty_amount) > 0 && ` (Multa: ${safeCurrency(receivable.carried_penalty_amount)})`}
+                      {safeNumber(receivable.carried_interest_amount) > 0 && ` (Juros: ${safeCurrency(receivable.carried_interest_amount)})`}
                     </div>
                   )}
                   
@@ -512,7 +567,7 @@ export function FlexiblePaymentDialog({
                   <div className="flex justify-between font-semibold">
                     <span>Total devido:</span>
                     <span className={dueResult.isOverdue ? "text-destructive" : ""}>
-                      {formatCurrency(fourComponentDue.total)}
+                      {safeCurrency(fourComponentDue.total)}
                     </span>
                   </div>
                 </div>
@@ -595,7 +650,7 @@ export function FlexiblePaymentDialog({
                     <FormLabel>Valor Recebido (R$) *</FormLabel>
                     <FormControl>
                       <CurrencyInput
-                        value={field.value}
+                        value={safeNumber(field.value)}
                         onValueChange={field.onChange}
                         showPrefix
                         placeholder="0,00"
@@ -631,7 +686,7 @@ export function FlexiblePaymentDialog({
                         <FormLabel className="text-xs">Multa</FormLabel>
                         <FormControl>
                           <CurrencyInput
-                            value={field.value}
+                            value={safeNumber(field.value)}
                             onValueChange={field.onChange}
                             className="h-8 text-sm"
                           />
@@ -647,7 +702,7 @@ export function FlexiblePaymentDialog({
                         <FormLabel className="text-xs">Mora (atraso)</FormLabel>
                         <FormControl>
                           <CurrencyInput
-                            value={field.value}
+                            value={safeNumber(field.value)}
                             onValueChange={field.onChange}
                             className="h-8 text-sm"
                           />
@@ -663,7 +718,7 @@ export function FlexiblePaymentDialog({
                         <FormLabel className="text-xs">Juros operação</FormLabel>
                         <FormControl>
                           <CurrencyInput
-                            value={field.value}
+                            value={safeNumber(field.value)}
                             onValueChange={field.onChange}
                             className="h-8 text-sm"
                           />
@@ -679,7 +734,7 @@ export function FlexiblePaymentDialog({
                         <FormLabel className="text-xs">Principal</FormLabel>
                         <FormControl>
                           <CurrencyInput
-                            value={field.value}
+                            value={safeNumber(field.value)}
                             onValueChange={field.onChange}
                             className="h-8 text-sm"
                           />
@@ -695,10 +750,10 @@ export function FlexiblePaymentDialog({
                     "font-medium",
                     allocationDifference !== 0 && "text-destructive"
                   )}>
-                    {formatCurrency(totalAllocated)}
+                    {safeCurrency(totalAllocated)}
                     {allocationDifference !== 0 && (
                       <span className="ml-2 text-xs">
-                        (dif: {formatCurrency(allocationDifference)})
+                        (dif: {safeCurrency(allocationDifference)})
                       </span>
                     )}
                   </span>
@@ -713,7 +768,7 @@ export function FlexiblePaymentDialog({
                       Abatimentos/Negociação
                       {totalDiscount > 0 && (
                         <span className="ml-2 text-primary">
-                          ({formatCurrency(totalDiscount)})
+                          ({safeCurrency(totalDiscount)})
                         </span>
                       )}
                     </span>
@@ -734,7 +789,7 @@ export function FlexiblePaymentDialog({
                             <FormLabel className="text-xs">Desc. Multa</FormLabel>
                             <FormControl>
                               <CurrencyInput
-                                value={field.value}
+                                value={safeNumber(field.value)}
                                 onValueChange={field.onChange}
                                 className="h-8 text-sm"
                               />
@@ -750,7 +805,7 @@ export function FlexiblePaymentDialog({
                             <FormLabel className="text-xs">Desc. Mora</FormLabel>
                             <FormControl>
                               <CurrencyInput
-                                value={field.value}
+                                value={safeNumber(field.value)}
                                 onValueChange={field.onChange}
                                 className="h-8 text-sm"
                               />
@@ -766,7 +821,7 @@ export function FlexiblePaymentDialog({
                             <FormLabel className="text-xs">Desc. Juros Op.</FormLabel>
                             <FormControl>
                               <CurrencyInput
-                                value={field.value}
+                                value={safeNumber(field.value)}
                                 onValueChange={field.onChange}
                                 className="h-8 text-sm"
                               />
@@ -782,7 +837,7 @@ export function FlexiblePaymentDialog({
                             <FormLabel className="text-xs">Desc. Principal</FormLabel>
                             <FormControl>
                               <CurrencyInput
-                                value={field.value}
+                                value={safeNumber(field.value)}
                                 onValueChange={field.onChange}
                                 className="h-8 text-sm"
                               />
@@ -794,7 +849,7 @@ export function FlexiblePaymentDialog({
                     {totalDiscount > 0 && (
                       <div className="flex justify-between text-sm pt-2 border-t text-primary">
                         <span>Total abatido:</span>
-                        <span className="font-medium">{formatCurrency(totalDiscount)}</span>
+                        <span className="font-medium">{safeCurrency(totalDiscount)}</span>
                       </div>
                     )}
                   </div>
@@ -814,26 +869,26 @@ export function FlexiblePaymentDialog({
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div className="text-center p-2 rounded bg-background border">
                     <p className="text-xs text-muted-foreground">Juros Operação</p>
-                    <p className="font-semibold">{formatCurrency(balanceBreakdown.contractInterest)}</p>
+                    <p className="font-semibold">{safeCurrency(balanceBreakdown.contractInterest)}</p>
                   </div>
                   <div className="text-center p-2 rounded bg-background border">
                     <p className="text-xs text-muted-foreground">Mora (atraso)</p>
-                    <p className="font-semibold">{formatCurrency(balanceBreakdown.lateInterest)}</p>
+                    <p className="font-semibold">{safeCurrency(balanceBreakdown.lateInterest)}</p>
                   </div>
                   <div className="text-center p-2 rounded bg-background border">
                     <p className="text-xs text-muted-foreground">Multa</p>
-                    <p className="font-semibold">{formatCurrency(balanceBreakdown.penalty)}</p>
+                    <p className="font-semibold">{safeCurrency(balanceBreakdown.penalty)}</p>
                   </div>
                   <div className="text-center p-2 rounded bg-background border">
                     <p className="text-xs text-muted-foreground">Principal</p>
-                    <p className="font-semibold">{formatCurrency(balanceBreakdown.amortization)}</p>
+                    <p className="font-semibold">{safeCurrency(balanceBreakdown.amortization)}</p>
                   </div>
                 </div>
                 <Separator className="my-1" />
                 <div className="flex justify-between font-semibold text-sm">
                   <span>Total remanescente:</span>
                   <span className={balanceBreakdown.total > 0 ? "text-warning" : "text-green-600"}>
-                    {formatCurrency(balanceBreakdown.total)}
+                    {safeCurrency(balanceBreakdown.total)}
                   </span>
                 </div>
               </div>
@@ -857,16 +912,16 @@ export function FlexiblePaymentDialog({
                           <p className="text-xs font-medium text-muted-foreground">Nova parcela ({receivable.installment_number + 1}ª) será criada com:</p>
                           <div className="flex justify-between text-xs">
                             <span>Juros contratual:</span>
-                            <span className="font-medium">{formatCurrency(scheduleBreakdown.contractInterest)}</span>
+                            <span className="font-medium">{safeCurrency(scheduleBreakdown.contractInterest)}</span>
                           </div>
                           <div className="flex justify-between text-xs">
                             <span>Principal (amortização):</span>
-                            <span className="font-medium">{formatCurrency(scheduleBreakdown.amortization)}</span>
+                            <span className="font-medium">{safeCurrency(scheduleBreakdown.amortization)}</span>
                           </div>
                           <Separator className="my-1" />
                           <div className="flex justify-between text-sm font-semibold">
                             <span>Total da nova parcela:</span>
-                            <span className="text-primary">{formatCurrency(scheduleBreakdown.installmentTotal)}</span>
+                            <span className="text-primary">{safeCurrency(scheduleBreakdown.installmentTotal)}</span>
                           </div>
                         </div>
                         <p className="text-blue-700 dark:text-blue-400 text-xs mt-1">
@@ -882,7 +937,7 @@ export function FlexiblePaymentDialog({
                         <div className="space-y-2">
                           <div className="flex justify-between text-sm p-2 bg-muted rounded">
                             <span className="text-muted-foreground">Valor base (calculado):</span>
-                            <span className="font-medium">{formatCurrency(newInstallmentBaseAmount)}</span>
+                            <span className="font-medium">{safeCurrency(newInstallmentBaseAmount)}</span>
                           </div>
                           <FormField
                             control={form.control}
@@ -893,7 +948,7 @@ export function FlexiblePaymentDialog({
                                 <div className="flex gap-2">
                                   <FormControl>
                                     <CurrencyInput
-                                      value={field.value}
+                                      value={safeNumber(field.value)}
                                       onValueChange={field.onChange}
                                       showPrefix
                                       className="flex-1"
@@ -922,7 +977,7 @@ export function FlexiblePaymentDialog({
                                 {manualAdjustment > 0 ? "Acréscimo aplicado:" : "Desconto aplicado:"}
                               </span>
                               <span className="font-semibold">
-                                {manualAdjustment > 0 ? "+" : ""}{formatCurrency(manualAdjustment)}
+                                {manualAdjustment > 0 ? "+" : ""}{safeCurrency(manualAdjustment)}
                               </span>
                             </div>
                           )}
@@ -1076,14 +1131,14 @@ export function FlexiblePaymentDialog({
                           />
 
                           {/* Preview da alocação */}
-                          {deferAllocationPreview && (watchCustomDeferAmount || 0) > 0 && (
+                          {deferAllocationPreview && watchCustomDeferAmount > 0 && (
                             <div className="rounded-md border bg-background p-3 text-sm space-y-2">
                               <div className="space-y-1">
                                 <p className="font-medium text-primary text-xs">Composição base da nova parcela ({receivable.installment_number + 1}ª):</p>
                                 <div className="flex justify-between text-xs">
-                                  <span>Principal: {formatCurrency(deferAllocationPreview.carriedPrincipal)}</span>
-                                  <span>Multa: {formatCurrency(deferAllocationPreview.carriedPenalty)}</span>
-                                  <span>Juros: {formatCurrency(deferAllocationPreview.carriedInterest)}</span>
+                                  <span>Principal: {safeCurrency(deferAllocationPreview.carriedPrincipal)}</span>
+                                  <span>Multa: {safeCurrency(deferAllocationPreview.carriedPenalty)}</span>
+                                  <span>Juros: {safeCurrency(deferAllocationPreview.carriedInterest)}</span>
                                 </div>
                               </div>
                             </div>
@@ -1093,7 +1148,7 @@ export function FlexiblePaymentDialog({
                           <div className="space-y-2">
                             <div className="flex justify-between text-sm p-2 bg-muted rounded">
                               <span className="text-muted-foreground">Valor base (calculado):</span>
-                              <span className="font-medium">{formatCurrency(newInstallmentBaseAmount)}</span>
+                              <span className="font-medium">{safeCurrency(newInstallmentBaseAmount)}</span>
                             </div>
                             <FormField
                               control={form.control}
@@ -1104,7 +1159,7 @@ export function FlexiblePaymentDialog({
                                   <div className="flex gap-2">
                                     <FormControl>
                                       <CurrencyInput
-                                        value={field.value}
+                                        value={safeNumber(field.value)}
                                         onValueChange={field.onChange}
                                         showPrefix
                                         className="flex-1"
@@ -1133,7 +1188,7 @@ export function FlexiblePaymentDialog({
                                   {manualAdjustment > 0 ? "Acréscimo aplicado:" : "Desconto aplicado:"}
                                 </span>
                                 <span className="font-semibold">
-                                  {manualAdjustment > 0 ? "+" : ""}{formatCurrency(manualAdjustment)}
+                                  {manualAdjustment > 0 ? "+" : ""}{safeCurrency(manualAdjustment)}
                                 </span>
                               </div>
                             )}
