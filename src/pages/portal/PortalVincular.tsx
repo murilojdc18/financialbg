@@ -20,12 +20,44 @@ const vinculacaoSchema = z.object({
     .max(18, 'CPF inválido')
     .refine((val) => {
       const digits = val.replace(/\D/g, '');
-      return digits.length === 11 || digits.length === 14;
+      if (digits.length === 11) return isValidCPF(digits);
+      if (digits.length === 14) return isValidCNPJ(digits);
+      return false;
     }, 'CPF ou CNPJ inválido'),
   secondFactor: z.string()
     .min(4, 'Código deve ter pelo menos 4 caracteres')
     .max(20, 'Código muito longo'),
 });
+
+function isValidCPF(cpf: string): boolean {
+  if (/^(\d)\1{10}$/.test(cpf)) return false;
+  let sum = 0;
+  for (let i = 0; i < 9; i++) sum += parseInt(cpf[i]) * (10 - i);
+  let r = (sum * 10) % 11;
+  if (r === 10) r = 0;
+  if (r !== parseInt(cpf[9])) return false;
+  sum = 0;
+  for (let i = 0; i < 10; i++) sum += parseInt(cpf[i]) * (11 - i);
+  r = (sum * 10) % 11;
+  if (r === 10) r = 0;
+  return r === parseInt(cpf[10]);
+}
+
+function isValidCNPJ(cnpj: string): boolean {
+  if (/^(\d)\1{13}$/.test(cnpj)) return false;
+  const w1 = [5,4,3,2,9,8,7,6,5,4,3,2];
+  const w2 = [6,5,4,3,2,9,8,7,6,5,4,3,2];
+  let sum = 0;
+  for (let i = 0; i < 12; i++) sum += parseInt(cnpj[i]) * w1[i];
+  let r = sum % 11;
+  const d1 = r < 2 ? 0 : 11 - r;
+  if (d1 !== parseInt(cnpj[12])) return false;
+  sum = 0;
+  for (let i = 0; i < 13; i++) sum += parseInt(cnpj[i]) * w2[i];
+  r = sum % 11;
+  const d2 = r < 2 ? 0 : 11 - r;
+  return d2 === parseInt(cnpj[13]);
+}
 
 type VinculacaoFormValues = z.infer<typeof vinculacaoSchema>;
 
