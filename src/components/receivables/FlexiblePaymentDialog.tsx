@@ -93,6 +93,9 @@ const formSchema = z.object({
   deferToDate: z.date({ required_error: "Data de vencimento é obrigatória" }),
   customDeferAmount: z.number().min(0).default(0),
   deferPriority: z.enum(["principal", "interest", "penalty"]).default("principal"),
+  // Valor final editável da nova parcela
+  finalNewInstallmentAmount: z.number().min(0).default(0),
+  adjustmentReason: z.string().max(200).optional(),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -144,6 +147,8 @@ export function FlexiblePaymentDialog({
       deferToDate: addDays(new Date(), 30),
       customDeferAmount: 0,
       deferPriority: "principal",
+      finalNewInstallmentAmount: 0,
+      adjustmentReason: "",
     },
   });
 
@@ -162,6 +167,8 @@ export function FlexiblePaymentDialog({
   const watchDeferToDate = form.watch("deferToDate");
   const watchCustomDeferAmount = form.watch("customDeferAmount");
   const watchDeferPriority = form.watch("deferPriority");
+  const watchFinalNewAmount = form.watch("finalNewInstallmentAmount");
+  const watchAdjustmentReason = form.watch("adjustmentReason");
 
   // Calculate schedule breakdown for contract interest
   useEffect(() => {
@@ -298,18 +305,42 @@ export function FlexiblePaymentDialog({
     };
   }, [fourComponentDue, watchAllocPenalty, watchAllocLateInterest, watchAllocContractInterest, watchAllocPrincipal, watchDiscountPenalty, watchDiscountLateInterest, watchDiscountContractInterest, watchDiscountPrincipal]);
 
-  // When balance > 0, auto-force defer and set customDeferAmount
+  // When balance > 0, auto-force defer and set customDeferAmount + finalNewInstallmentAmount
   useEffect(() => {
     if (balanceBreakdown.total > 0.01) {
       form.setValue("deferOption", "defer");
+      let baseAmount: number;
       if (isInterestOnlyPayment && scheduleBreakdown) {
-        // For interest-only, the deferred amount is the full installment total
-        form.setValue("customDeferAmount", scheduleBreakdown.installmentTotal);
+        baseAmount = scheduleBreakdown.installmentTotal;
       } else {
-        form.setValue("customDeferAmount", balanceBreakdown.total);
+        baseAmount = balanceBreakdown.total;
+      }
+      form.setValue("customDeferAmount", baseAmount);
+      // Only set finalNewInstallmentAmount if it hasn't been manually changed
+      const currentFinal = form.getValues("finalNewInstallmentAmount");
+      if (currentFinal < 0.01) {
+        form.setValue("finalNewInstallmentAmount", baseAmount);
       }
     }
   }, [balanceBreakdown.total, isInterestOnlyPayment, scheduleBreakdown, form]);
+
+  // Computed: base amount for new installment (read-only reference)
+  const newInstallmentBaseAmount = useMemo(() => {
+    if (isInterestOnlyPayment && scheduleBreakdown) {
+      return scheduleBreakdown.installmentTotal;
+    }
+    return balanceBreakdown.total;
+  }, [isInterestOnlyPayment, scheduleBreakdown, balanceBreakdown.total]);
+
+  // Computed: adjustment = final - base
+  const manualAdjustment = useMemo(() => {
+    const final_ = watchFinalNewAmount || 0;
+    const base_ = newInstallmentBaseAmount || 0;
+    return Math.round((final_ - base_) * 100) / 100;
+  }, [watchFinalNewAmount, newInstallmentBaseAmount]);
+
+  // Need adjustment reason if adjustment != 0
+  const needsAdjustmentReason = Math.abs(manualAdjustment) > 0.01;
 
   // Alocação do valor a postergar — use combined interest + principal for defer components
   const deferAllocationPreview = useMemo(() => {
@@ -347,9 +378,14 @@ export function FlexiblePaymentDialog({
         errors.push(`Existe saldo remanescente de ${formatCurrency(balanceBreakdown.total)}. Para concluir o pagamento, você precisa postergar esse saldo para uma nova parcela.`);
       }
     }
+
+    // If there's an adjustment, reason is required
+    if (needsAdjustmentReason && !(watchAdjustmentReason && watchAdjustmentReason.trim().length > 0)) {
+      errors.push('Informe o motivo do ajuste no valor da nova parcela.');
+    }
     
     return errors;
-  }, [allocationDifference, totalAllocated, watchAmountTotal, watchDeferOption, balanceBreakdown.total]);
+  }, [allocationDifference, totalAllocated, watchAmountTotal, watchDeferOption, balanceBreakdown.total, needsAdjustmentReason, watchAdjustmentReason]);
 
   const canSubmit = validationErrors.length === 0 && ((watchAmountTotal || 0) > 0) && (balanceBreakdown.total <= 0.01 || watchDeferOption === "defer");
 
@@ -366,6 +402,8 @@ export function FlexiblePaymentDialog({
 
   const handleSubmit = async (values: FormValues) => {
     if (!receivable || !canSubmit) return;
+
+    const adjustmentAmount = Math.round(((values.finalNewInstallmentAmount || 0) - newInstallmentBaseAmount) * 100) / 100;
 
     await flexiblePayment.mutateAsync({
       receivableId: receivable.id,
@@ -392,6 +430,11 @@ export function FlexiblePaymentDialog({
       } : undefined,
       isInterestOnlyPayment,
       scheduleBreakdown,
+      manualAdjustment: Math.abs(adjustmentAmount) > 0.01 ? {
+        amount: adjustmentAmount,
+        reason: values.adjustmentReason || '',
+        finalAmount: values.finalNewInstallmentAmount,
+      } : undefined,
       receivable,
     });
 
@@ -831,9 +874,81 @@ export function FlexiblePaymentDialog({
                         </p>
                       </div>
 
-                      {/* DatePicker for new installment */}
+                      {/* DatePicker + Editable final amount for new installment */}
                       <div className="rounded-md border p-4 space-y-4">
-                        <p className="text-sm font-medium">Vencimento da nova parcela</p>
+                        <p className="text-sm font-medium">Configuração da nova parcela</p>
+                        
+                        {/* Editable final amount */}
+                        <div className="space-y-2">
+                          <div className="flex justify-between text-sm p-2 bg-muted rounded">
+                            <span className="text-muted-foreground">Valor base (calculado):</span>
+                            <span className="font-medium">{formatCurrency(newInstallmentBaseAmount)}</span>
+                          </div>
+                          <FormField
+                            control={form.control}
+                            name="finalNewInstallmentAmount"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-sm">Valor final da nova parcela (editável)</FormLabel>
+                                <div className="flex gap-2">
+                                  <FormControl>
+                                    <CurrencyInput
+                                      value={field.value}
+                                      onValueChange={field.onChange}
+                                      showPrefix
+                                      className="flex-1"
+                                    />
+                                  </FormControl>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-10 text-xs whitespace-nowrap"
+                                    onClick={() => form.setValue("finalNewInstallmentAmount", newInstallmentBaseAmount)}
+                                  >
+                                    <RefreshCw className="h-3 w-3 mr-1" />
+                                    Resetar
+                                  </Button>
+                                </div>
+                              </FormItem>
+                            )}
+                          />
+                          {Math.abs(manualAdjustment) > 0.01 && (
+                            <div className={cn(
+                              "flex justify-between text-sm p-2 rounded border",
+                              manualAdjustment > 0 ? "bg-amber-50 border-amber-300 dark:bg-amber-950/30 dark:border-amber-700" : "bg-green-50 border-green-300 dark:bg-green-950/30 dark:border-green-700"
+                            )}>
+                              <span className="font-medium">
+                                {manualAdjustment > 0 ? "Acréscimo aplicado:" : "Desconto aplicado:"}
+                              </span>
+                              <span className="font-semibold">
+                                {manualAdjustment > 0 ? "+" : ""}{formatCurrency(manualAdjustment)}
+                              </span>
+                            </div>
+                          )}
+                          {needsAdjustmentReason && (
+                            <FormField
+                              control={form.control}
+                              name="adjustmentReason"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel className="text-sm text-destructive">Motivo do ajuste *</FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      placeholder="Ex: desconto por acordo, reforço para equalizar..."
+                                      className="h-8"
+                                      {...field}
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          )}
+                        </div>
+
+                        <Separator />
+
                         <FormField
                           control={form.control}
                           name="deferToDate"
@@ -937,12 +1052,6 @@ export function FlexiblePaymentDialog({
                             </p>
                           </div>
 
-                          {/* Valor a postergar — locked to 100% */}
-                          <div className="flex justify-between text-sm p-2 bg-muted rounded">
-                            <span className="font-medium">Valor a postergar:</span>
-                            <span className="font-semibold text-primary">{formatCurrency(balanceBreakdown.total)}</span>
-                          </div>
-
                           {/* Prioridade de postergação */}
                           <FormField
                             control={form.control}
@@ -970,19 +1079,84 @@ export function FlexiblePaymentDialog({
                           {deferAllocationPreview && (watchCustomDeferAmount || 0) > 0 && (
                             <div className="rounded-md border bg-background p-3 text-sm space-y-2">
                               <div className="space-y-1">
-                                <p className="font-medium text-primary text-xs">Vai para nova parcela ({receivable.installment_number + 1}ª):</p>
+                                <p className="font-medium text-primary text-xs">Composição base da nova parcela ({receivable.installment_number + 1}ª):</p>
                                 <div className="flex justify-between text-xs">
                                   <span>Principal: {formatCurrency(deferAllocationPreview.carriedPrincipal)}</span>
                                   <span>Multa: {formatCurrency(deferAllocationPreview.carriedPenalty)}</span>
                                   <span>Juros: {formatCurrency(deferAllocationPreview.carriedInterest)}</span>
                                 </div>
-                                <div className="flex justify-between font-medium">
-                                  <span>Total nova parcela:</span>
-                                  <span className="text-primary">{formatCurrency(deferAllocationPreview.totalCarried)}</span>
-                                </div>
                               </div>
                             </div>
                           )}
+
+                          {/* Editable final amount */}
+                          <div className="space-y-2">
+                            <div className="flex justify-between text-sm p-2 bg-muted rounded">
+                              <span className="text-muted-foreground">Valor base (calculado):</span>
+                              <span className="font-medium">{formatCurrency(newInstallmentBaseAmount)}</span>
+                            </div>
+                            <FormField
+                              control={form.control}
+                              name="finalNewInstallmentAmount"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel className="text-sm">Valor final da nova parcela (editável)</FormLabel>
+                                  <div className="flex gap-2">
+                                    <FormControl>
+                                      <CurrencyInput
+                                        value={field.value}
+                                        onValueChange={field.onChange}
+                                        showPrefix
+                                        className="flex-1"
+                                      />
+                                    </FormControl>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-10 text-xs whitespace-nowrap"
+                                      onClick={() => form.setValue("finalNewInstallmentAmount", newInstallmentBaseAmount)}
+                                    >
+                                      <RefreshCw className="h-3 w-3 mr-1" />
+                                      Resetar
+                                    </Button>
+                                  </div>
+                                </FormItem>
+                              )}
+                            />
+                            {Math.abs(manualAdjustment) > 0.01 && (
+                              <div className={cn(
+                                "flex justify-between text-sm p-2 rounded border",
+                                manualAdjustment > 0 ? "bg-amber-50 border-amber-300 dark:bg-amber-950/30 dark:border-amber-700" : "bg-green-50 border-green-300 dark:bg-green-950/30 dark:border-green-700"
+                              )}>
+                                <span className="font-medium">
+                                  {manualAdjustment > 0 ? "Acréscimo aplicado:" : "Desconto aplicado:"}
+                                </span>
+                                <span className="font-semibold">
+                                  {manualAdjustment > 0 ? "+" : ""}{formatCurrency(manualAdjustment)}
+                                </span>
+                              </div>
+                            )}
+                            {needsAdjustmentReason && (
+                              <FormField
+                                control={form.control}
+                                name="adjustmentReason"
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel className="text-sm text-destructive">Motivo do ajuste *</FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        placeholder="Ex: desconto por acordo, reforço para equalizar..."
+                                        className="h-8"
+                                        {...field}
+                                      />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            )}
+                          </div>
 
                           {/* DatePicker for new installment due date */}
                           <FormField
