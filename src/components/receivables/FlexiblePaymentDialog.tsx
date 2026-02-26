@@ -212,7 +212,7 @@ function FlexiblePaymentDialogInner({
   const watchCustomDeferAmount = safeNumber(form.watch("customDeferAmount"));
   const watchDeferPriority = form.watch("deferPriority");
   const watchFinalNewAmount = safeNumber(form.watch("finalNewInstallmentAmount"));
-  const watchAdjustmentReason = form.watch("adjustmentReason");
+  
 
   // Calculate schedule breakdown for contract interest
   useEffect(() => {
@@ -393,8 +393,6 @@ function FlexiblePaymentDialogInner({
     return round2(watchFinalNewAmount - newInstallmentBaseAmount);
   }, [watchFinalNewAmount, newInstallmentBaseAmount]);
 
-  // Need adjustment reason if adjustment != 0
-  const needsAdjustmentReason = Math.abs(manualAdjustment) > 0.01;
 
   // Alocação do valor a postergar — use combined interest + principal for defer components
   const deferAllocationPreview = useMemo(() => {
@@ -429,12 +427,8 @@ function FlexiblePaymentDialogInner({
       }
     }
 
-    if (needsAdjustmentReason && !(watchAdjustmentReason && watchAdjustmentReason.trim().length > 0)) {
-      errors.push('Informe o motivo do ajuste no valor da nova parcela.');
-    }
-    
     return errors;
-  }, [allocationDifference, totalAllocated, watchAmountTotal, watchDeferOption, balanceBreakdown.total, needsAdjustmentReason, watchAdjustmentReason]);
+  }, [allocationDifference, totalAllocated, watchAmountTotal, watchDeferOption, balanceBreakdown.total]);
 
   const canSubmit = validationErrors.length === 0 && watchAmountTotal > 0 && (balanceBreakdown.total <= 0.01 || watchDeferOption === "defer");
 
@@ -981,25 +975,6 @@ function FlexiblePaymentDialogInner({
                               </span>
                             </div>
                           )}
-                          {needsAdjustmentReason && (
-                            <FormField
-                              control={form.control}
-                              name="adjustmentReason"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel className="text-sm text-destructive">Motivo do ajuste *</FormLabel>
-                                  <FormControl>
-                                    <Input
-                                      placeholder="Ex: desconto por acordo, reforço para equalizar..."
-                                      className="h-8"
-                                      {...field}
-                                    />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                          )}
                         </div>
 
                         <Separator />
@@ -1191,25 +1166,6 @@ function FlexiblePaymentDialogInner({
                                   {manualAdjustment > 0 ? "+" : ""}{safeCurrency(manualAdjustment)}
                                 </span>
                               </div>
-                            )}
-                            {needsAdjustmentReason && (
-                              <FormField
-                                control={form.control}
-                                name="adjustmentReason"
-                                render={({ field }) => (
-                                  <FormItem>
-                                    <FormLabel className="text-sm text-destructive">Motivo do ajuste *</FormLabel>
-                                    <FormControl>
-                                      <Input
-                                        placeholder="Ex: desconto por acordo, reforço para equalizar..."
-                                        className="h-8"
-                                        {...field}
-                                      />
-                                    </FormControl>
-                                    <FormMessage />
-                                  </FormItem>
-                                )}
-                              />
                             )}
                           </div>
 
