@@ -194,6 +194,19 @@ export function ReceivablesTable({
                   <TableCell>{format(parseISO(receivable.due_date), "dd/MM/yyyy")}</TableCell>
                   <TableCell className="text-right">
                     {formatCurrency(Number(receivable.amount))}
+                    {(receivable as any).is_manual_amount && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="ml-1 text-xs text-amber-600 cursor-help">±</span>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          Ajuste manual: {(receivable as any).manual_adjustment_amount > 0 ? '+' : ''}{formatCurrency((receivable as any).manual_adjustment_amount ?? 0)}
+                          {(receivable as any).manual_adjustment_reason && (
+                            <span className="block text-xs text-muted-foreground">{(receivable as any).manual_adjustment_reason}</span>
+                          )}
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
                   </TableCell>
                   <TableCell className="text-right font-medium">
                     {feeResult?.isOverdue || hasCarriedFees ? (

@@ -72,6 +72,12 @@ export interface FlexiblePaymentV2Input {
   isInterestOnlyPayment?: boolean;
   /** Schedule breakdown for the current installment (needed for interest-only reissue) */
   scheduleBreakdown?: ContractInterestBreakdown | null;
+  /** Manual adjustment to the new installment amount */
+  manualAdjustment?: {
+    amount: number;
+    reason: string;
+    finalAmount: number;
+  };
 }
 
 /**
@@ -101,6 +107,7 @@ export function useFlexiblePaymentV2() {
         defer,
         isInterestOnlyPayment,
         scheduleBreakdown,
+        manualAdjustment,
       } = input;
       
       // Configuração de juros/multa da operação
@@ -249,10 +256,22 @@ export function useFlexiblePaymentV2() {
           renegotiationNote = `Parcela reemitida para ${newInstallmentNumber} (${newDueDate.toISOString().split('T')[0]}): Principal R$ ${deferAllocation.carriedPrincipal.toFixed(2)} + Multa R$ ${deferAllocation.carriedPenalty.toFixed(2)} + Juros R$ ${deferAllocation.carriedInterest.toFixed(2)}`;
         }
 
+        // Apply manual adjustment if provided
+        let adjustmentAmount = 0;
+        let adjustmentReason = '';
+        let isManualAmount = false;
+
+        if (manualAdjustment && Math.abs(manualAdjustment.amount) > 0.01) {
+          adjustmentAmount = manualAdjustment.amount;
+          adjustmentReason = manualAdjustment.reason;
+          isManualAmount = true;
+          // Override the installment amount with the final amount
+          newInstallmentAmount = manualAdjustment.finalAmount;
+          renegotiationNote += ` | Ajuste manual: R$ ${adjustmentAmount > 0 ? '+' : ''}${adjustmentAmount.toFixed(2)} (${adjustmentReason})`;
+        }
+
         // Insert new installment as N+1
-        const { data: newReceivable, error: insertError } = await supabase
-          .from('receivables')
-          .insert({
+        const newReceivableInsert: Record<string, unknown> = {
             operation_id: receivable.operation_id,
             client_id: receivable.client_id,
             installment_number: newInstallmentNumber,
@@ -266,7 +285,14 @@ export function useFlexiblePaymentV2() {
             carried_penalty_amount: newCarriedPenalty,
             carried_interest_amount: newCarriedInterest,
             renegotiated_from_receivable_id: receivable.id,
-          })
+            manual_adjustment_amount: adjustmentAmount,
+            manual_adjustment_reason: adjustmentReason || null,
+            is_manual_amount: isManualAmount,
+        };
+
+        const { data: newReceivable, error: insertError } = await supabase
+          .from('receivables')
+          .insert(newReceivableInsert as any)
           .select('id')
           .single();
 

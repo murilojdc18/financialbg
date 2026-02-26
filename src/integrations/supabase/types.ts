@@ -569,7 +569,10 @@ export type Database = {
           id: string
           installment_number: number
           interest_accrued: number | null
+          is_manual_amount: boolean
           last_interest_calc_at: string | null
+          manual_adjustment_amount: number
+          manual_adjustment_reason: string | null
           notes: string | null
           operation_id: string
           owner_id: string
@@ -594,7 +597,10 @@ export type Database = {
           id?: string
           installment_number: number
           interest_accrued?: number | null
+          is_manual_amount?: boolean
           last_interest_calc_at?: string | null
+          manual_adjustment_amount?: number
+          manual_adjustment_reason?: string | null
           notes?: string | null
           operation_id: string
           owner_id?: string
@@ -619,7 +625,10 @@ export type Database = {
           id?: string
           installment_number?: number
           interest_accrued?: number | null
+          is_manual_amount?: boolean
           last_interest_calc_at?: string | null
+          manual_adjustment_amount?: number
+          manual_adjustment_reason?: string | null
           notes?: string | null
           operation_id?: string
           owner_id?: string
