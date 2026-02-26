@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -6,6 +7,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { PortalLayout } from "@/components/portal/PortalLayout";
 import { PortalProtectedRoute } from "@/components/portal/PortalProtectedRoute";
 import SimuladorEmprestimo from "./pages/SimuladorEmprestimo";
@@ -27,9 +29,21 @@ import PortalOperacaoDetalhes from "./pages/portal/PortalOperacaoDetalhes";
 
 const queryClient = new QueryClient();
 
-const App = () => (
+const App = () => {
+  // Global safety net for unhandled promise rejections
+  useEffect(() => {
+    const handler = (event: PromiseRejectionEvent) => {
+      console.error("[App] Unhandled promise rejection:", event.reason);
+      event.preventDefault(); // Prevent browser default (white screen)
+    };
+    window.addEventListener("unhandledrejection", handler);
+    return () => window.removeEventListener("unhandledrejection", handler);
+  }, []);
+
+  return (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
+      <ErrorBoundary variant="fullpage">
       <Toaster />
       <Sonner />
       <BrowserRouter>
@@ -153,8 +167,10 @@ const App = () => (
           </Routes>
         </AuthProvider>
       </BrowserRouter>
+      </ErrorBoundary>
     </TooltipProvider>
   </QueryClientProvider>
-);
+  );
+};
 
 export default App;
