@@ -195,9 +195,11 @@ export function useFlexiblePaymentV2() {
       if (updateError) throw updateError;
 
       // 3. Reemitir saldo se solicitado (criar nova parcela como N+1)
+      // CRITICAL GUARD: Only create new installment if there's actual remaining balance
       let newReceivableId: string | null = null;
+      const hasActualRemaining = totalRemaining > 0.01;
       
-      if (defer && defer.amount > 0.01) {
+      if (defer && defer.amount > 0.01 && hasActualRemaining) {
         const newDueDate = defer.toDate;
         const currentN = receivable.installment_number;
         const newInstallmentNumber = currentN + 1;
