@@ -360,7 +360,7 @@ function FlexiblePaymentDialogInner({
   }, [fourComponentDue, watchAllocPenalty, watchAllocLateInterest, watchAllocContractInterest, watchAllocPrincipal, watchDiscountPenalty, watchDiscountLateInterest, watchDiscountContractInterest, watchDiscountPrincipal]);
 
   // When balance > 0, auto-force defer and set customDeferAmount + finalNewInstallmentAmount
-  // CRITICAL FIX: removed `form` from dependency array to prevent infinite loop
+  // When balance == 0, reset defer state to prevent spurious installment creation
   useEffect(() => {
     if (balanceBreakdown.total > 0.01) {
       form.setValue("deferOption", "defer");
@@ -376,6 +376,11 @@ function FlexiblePaymentDialogInner({
       if (currentFinal < 0.01) {
         form.setValue("finalNewInstallmentAmount", baseAmount);
       }
+    } else {
+      // Balance is zero — reset defer to prevent creating new installment
+      form.setValue("deferOption", "keep");
+      form.setValue("customDeferAmount", 0);
+      form.setValue("finalNewInstallmentAmount", 0);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [balanceBreakdown.total, isInterestOnlyPayment, scheduleBreakdown]);
@@ -450,6 +455,11 @@ function FlexiblePaymentDialogInner({
     try {
       const adjustmentAmount = round2(safeNumber(values.finalNewInstallmentAmount) - newInstallmentBaseAmount);
 
+      // CRITICAL: Only allow defer/reissue if there's actual remaining balance
+      const hasRealBalance = balanceBreakdown.total > 0.01;
+      const shouldDefer = hasRealBalance && values.deferOption === "defer" && safeNumber(values.customDeferAmount) > 0.01;
+      const shouldReissueInterestOnly = hasRealBalance && isInterestOnlyPayment;
+
       await flexiblePayment.mutateAsync({
         receivableId: receivable.id,
         amountTotal: safeNumber(values.amountTotal),
@@ -468,14 +478,14 @@ function FlexiblePaymentDialogInner({
           contractInterest: safeNumber(values.discountContractInterest),
           principal: safeNumber(values.discountPrincipal),
         },
-        defer: values.deferOption === "defer" && safeNumber(values.customDeferAmount) > 0.01 ? {
+        defer: shouldDefer ? {
           amount: safeNumber(values.customDeferAmount),
           toDate: values.deferToDate,
           priority: values.deferPriority as DeferPriority,
         } : undefined,
-        isInterestOnlyPayment,
-        scheduleBreakdown,
-        manualAdjustment: Math.abs(adjustmentAmount) > 0.01 ? {
+        isInterestOnlyPayment: shouldReissueInterestOnly,
+        scheduleBreakdown: shouldReissueInterestOnly ? scheduleBreakdown : null,
+        manualAdjustment: shouldDefer && Math.abs(adjustmentAmount) > 0.01 ? {
           amount: adjustmentAmount,
           reason: values.adjustmentReason || '',
           finalAmount: safeNumber(values.finalNewInstallmentAmount),
