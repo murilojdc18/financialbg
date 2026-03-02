@@ -12,6 +12,7 @@ export interface PortalReceivable extends DbReceivable {
     late_grace_days: number;
     late_penalty_percent: number;
     late_interest_monthly_percent: number;
+    late_interest_daily_percent: number;
   };
 }
 
@@ -52,7 +53,8 @@ export function usePortalReceivables() {
           operations!inner (
             late_grace_days,
             late_penalty_percent,
-            late_interest_monthly_percent
+            late_interest_monthly_percent,
+            late_interest_daily_percent
           )
         `)
         .eq('client_id', clientId)
@@ -180,7 +182,8 @@ export function usePortalOperationReceivables(operationId: string) {
           operations!inner (
             late_grace_days,
             late_penalty_percent,
-            late_interest_monthly_percent
+            late_interest_monthly_percent,
+            late_interest_daily_percent
           )
         `)
         .eq('operation_id', operationId)

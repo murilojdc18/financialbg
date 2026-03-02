@@ -115,7 +115,7 @@ export default function PortalOperacaoDetalhes() {
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Taxa Mensal</span>
-              <span className="font-medium">{formatPercent(operation.rate_monthly)}</span>
+              <span className="font-medium">{formatPercent(operation.rate_monthly * 100)}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Prazo</span>
@@ -207,6 +207,7 @@ export default function PortalOperacaoDetalhes() {
                         lateGraceDays: rec.operations.late_grace_days,
                         latePenaltyPercent: rec.operations.late_penalty_percent,
                         lateInterestMonthlyPercent: rec.operations.late_interest_monthly_percent,
+                        lateInterestDailyPercent: rec.operations.late_interest_daily_percent,
                       }
                     );
 
