@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo, useCallback } from "react";
 import {
   Table,
   TableBody,
@@ -15,7 +15,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle, Eye, History, Info } from "lucide-react";
+import { CheckCircle, Eye, History, Info, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { DbReceivableWithRelations, DbClient } from "@/types/database";
 import { formatCurrency } from "@/lib/loan-calculator";
 import { calculateReceivableDue, LateFeeConfig } from "@/lib/receivable-calculator";
@@ -26,6 +26,23 @@ import { ReceivableForPayment } from "@/hooks/useFlexiblePaymentV2";
 import { FlexiblePaymentDialog } from "./FlexiblePaymentDialog";
 import { PaymentsHistoryDrawer } from "./PaymentsHistoryDrawer";
 import { useQueryClient } from "@tanstack/react-query";
+import { cn } from "@/lib/utils";
+
+type SortColumn = "due_date" | "total_due" | "status";
+type SortDirection = "asc" | "desc" | null;
+
+interface SortState {
+  column: SortColumn | null;
+  direction: SortDirection;
+}
+
+const STATUS_ORDER: Record<string, number> = {
+  ATRASADO: 0,
+  EM_ABERTO: 1,
+  PARCIAL: 2,
+  RENEGOCIADA: 3,
+  PAGO: 4,
+};
 
 interface ReceivablesTableProps {
   receivables: DbReceivableWithRelations[];
@@ -43,9 +60,18 @@ export function ReceivablesTable({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedReceivable, setSelectedReceivable] = useState<ReceivableForPayment | null>(null);
   const [selectedForHistory, setSelectedForHistory] = useState<{ id: string; number: number } | null>(null);
+  const [sort, setSort] = useState<SortState>({ column: null, direction: null });
+
+  const handleSort = useCallback((column: SortColumn) => {
+    setSort((prev) => {
+      if (prev.column !== column) return { column, direction: "asc" };
+      if (prev.direction === "asc") return { column, direction: "desc" };
+      if (prev.direction === "desc") return { column: null, direction: null };
+      return { column, direction: "asc" };
+    });
+  }, []);
 
   const handleMarkAsPaid = (receivable: DbReceivableWithRelations) => {
-    // Obter config de late fee da operação
     const config: LateFeeConfig = {
       lateGraceDays: receivable.operations?.late_grace_days ?? 0,
       latePenaltyPercent: Number(receivable.operations?.late_penalty_percent) ?? 10,
@@ -125,6 +151,54 @@ export function ReceivablesTable({
     );
   };
 
+  // Pre-compute fee results for sorting
+  const receivablesWithFees = useMemo(() => {
+    return receivables.map((rec) => ({
+      receivable: rec,
+      feeResult: calculateFees(rec),
+    }));
+  }, [receivables]);
+
+  // Sort
+  const sortedItems = useMemo(() => {
+    if (!sort.column || !sort.direction) return receivablesWithFees;
+
+    const multiplier = sort.direction === "asc" ? 1 : -1;
+
+    return [...receivablesWithFees].sort((a, b) => {
+      const ra = a.receivable;
+      const rb = b.receivable;
+
+      switch (sort.column) {
+        case "due_date": {
+          return multiplier * (ra.due_date.localeCompare(rb.due_date));
+        }
+        case "total_due": {
+          const totalA = ra.status === "PAGO"
+            ? (ra.amount_paid ?? 0)
+            : (a.feeResult?.breakdown.total ?? ra.amount);
+          const totalB = rb.status === "PAGO"
+            ? (rb.amount_paid ?? 0)
+            : (b.feeResult?.breakdown.total ?? rb.amount);
+          return multiplier * (totalA - totalB);
+        }
+        case "status": {
+          const orderA = STATUS_ORDER[ra.status] ?? 99;
+          const orderB = STATUS_ORDER[rb.status] ?? 99;
+          return multiplier * (orderA - orderB);
+        }
+        default:
+          return 0;
+      }
+    });
+  }, [receivablesWithFees, sort]);
+
+  const SortIcon = ({ column }: { column: SortColumn }) => {
+    if (sort.column !== column) return <ArrowUpDown className="h-3.5 w-3.5 ml-1 opacity-40" />;
+    if (sort.direction === "asc") return <ArrowUp className="h-3.5 w-3.5 ml-1 text-primary" />;
+    return <ArrowDown className="h-3.5 w-3.5 ml-1 text-primary" />;
+  };
+
   return (
     <TooltipProvider>
       <div className="rounded-md border">
@@ -135,19 +209,42 @@ export function ReceivablesTable({
               <TableHead>Cliente</TableHead>
               <TableHead>Operação</TableHead>
               <TableHead className="text-center">Caixa</TableHead>
-              <TableHead>Vencimento</TableHead>
+              <TableHead
+                className="cursor-pointer select-none hover:text-foreground transition-colors"
+                onClick={() => handleSort("due_date")}
+              >
+                <span className="inline-flex items-center">
+                  Vencimento
+                  <SortIcon column="due_date" />
+                </span>
+              </TableHead>
               <TableHead className="text-right">Original</TableHead>
-              <TableHead className="text-right">Total Devido</TableHead>
+              <TableHead
+                className="text-right cursor-pointer select-none hover:text-foreground transition-colors"
+                onClick={() => handleSort("total_due")}
+              >
+                <span className="inline-flex items-center justify-end w-full">
+                  Total Devido
+                  <SortIcon column="total_due" />
+                </span>
+              </TableHead>
               <TableHead className="text-right">Pago</TableHead>
               <TableHead className="text-right">Saldo</TableHead>
-              <TableHead>Status</TableHead>
+              <TableHead
+                className="cursor-pointer select-none hover:text-foreground transition-colors"
+                onClick={() => handleSort("status")}
+              >
+                <span className="inline-flex items-center">
+                  Status
+                  <SortIcon column="status" />
+                </span>
+              </TableHead>
               <TableHead className="text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {receivables.map((receivable) => {
+            {sortedItems.map(({ receivable, feeResult }) => {
               const isPaid = receivable.status === "PAGO";
-              const feeResult = calculateFees(receivable);
               const amountPaid = receivable.amount_paid ?? 0;
               
               // Encargos carregados

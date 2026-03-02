@@ -1,3 +1,4 @@
+import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -12,8 +13,16 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { Calendar } from "@/components/ui/calendar";
-import { CalendarIcon, X } from "lucide-react";
+import { CalendarIcon, X, Check, ChevronsUpDown } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
@@ -54,6 +63,8 @@ export function ReceivablesFilters({
   onEndDateChange,
   onClearFilters,
 }: ReceivablesFiltersProps) {
+  const [clientPopoverOpen, setClientPopoverOpen] = useState(false);
+
   const hasActiveFilters =
     selectedClientId !== "all" ||
     selectedStatus !== "all" ||
@@ -61,25 +72,77 @@ export function ReceivablesFilters({
     startDate !== undefined ||
     endDate !== undefined;
 
+  const selectedClientName = useMemo(() => {
+    if (selectedClientId === "all") return "Todos os clientes";
+    return clients.find((c) => c.id === selectedClientId)?.name ?? "Todos os clientes";
+  }, [selectedClientId, clients]);
+
   return (
     <div className="flex flex-wrap items-end gap-4 p-4 bg-muted/30 rounded-lg border">
+      {/* Searchable client combobox */}
       <div className="flex-1 min-w-[200px]">
-        <Label htmlFor="client-filter" className="text-sm font-medium">
-          Cliente
-        </Label>
-        <Select value={selectedClientId} onValueChange={onClientChange}>
-          <SelectTrigger id="client-filter" className="mt-1.5">
-            <SelectValue placeholder="Todos os clientes" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos os clientes</SelectItem>
-            {clients.map((client) => (
-              <SelectItem key={client.id} value={client.id}>
-                {client.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <Label className="text-sm font-medium">Cliente</Label>
+        <Popover open={clientPopoverOpen} onOpenChange={setClientPopoverOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              role="combobox"
+              aria-expanded={clientPopoverOpen}
+              className="w-full justify-between mt-1.5 font-normal"
+            >
+              <span className="truncate">{selectedClientName}</span>
+              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[300px] p-0" align="start">
+            <Command>
+              <CommandInput placeholder="Buscar por nome ou CPF..." />
+              <CommandList>
+                <CommandEmpty>Nenhum cliente encontrado.</CommandEmpty>
+                <CommandGroup>
+                  <CommandItem
+                    value="all"
+                    onSelect={() => {
+                      onClientChange("all");
+                      setClientPopoverOpen(false);
+                    }}
+                  >
+                    <Check
+                      className={cn(
+                        "mr-2 h-4 w-4",
+                        selectedClientId === "all" ? "opacity-100" : "opacity-0"
+                      )}
+                    />
+                    Todos os clientes
+                  </CommandItem>
+                  {clients.map((client) => (
+                    <CommandItem
+                      key={client.id}
+                      value={`${client.name} ${client.document ?? ""}`}
+                      onSelect={() => {
+                        onClientChange(client.id);
+                        setClientPopoverOpen(false);
+                      }}
+                    >
+                      <Check
+                        className={cn(
+                          "mr-2 h-4 w-4",
+                          selectedClientId === client.id ? "opacity-100" : "opacity-0"
+                        )}
+                      />
+                      <div className="flex flex-col">
+                        <span>{client.name}</span>
+                        {client.document && (
+                          <span className="text-xs text-muted-foreground">{client.document}</span>
+                        )}
+                      </div>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
       </div>
 
       <div className="min-w-[160px]">
