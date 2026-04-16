@@ -192,16 +192,26 @@ export function useFlexiblePaymentV2() {
       );
 
       // Calcular saldo restante após alocação + descontos
-      const totalAllocInterest = round2(normalizedAllocation.lateInterest + normalizedAllocation.contractInterest);
-      const totalDiscountInterest = round2(normalizedDiscounts.lateInterest + normalizedDiscounts.contractInterest);
+      // CRITICAL FIX: dueResult.breakdown uses 3 components:
+      //   - penalty = late penalty (multa)
+      //   - interest = late mora interest ONLY (NOT contract interest)
+      //   - principal = amortization + contract interest combined
+      // The user allocates in 4 components, so we must combine alloc_contractInterest + alloc_principal
+      // when subtracting from dueResult.breakdown.principal.
+      const totalAllocFromPrincipalBucket = round2(
+        normalizedAllocation.contractInterest + normalizedAllocation.principal,
+      );
+      const totalDiscountFromPrincipalBucket = round2(
+        normalizedDiscounts.contractInterest + normalizedDiscounts.principal,
+      );
       const penaltyRemaining = round2(
         Math.max(0, dueResult.breakdown.penalty - normalizedAllocation.penalty - normalizedDiscounts.penalty),
       );
       const interestRemaining = round2(
-        Math.max(0, dueResult.breakdown.interest - totalAllocInterest - totalDiscountInterest),
+        Math.max(0, dueResult.breakdown.interest - normalizedAllocation.lateInterest - normalizedDiscounts.lateInterest),
       );
       const principalRemaining = round2(
-        Math.max(0, dueResult.breakdown.principal - normalizedAllocation.principal - normalizedDiscounts.principal),
+        Math.max(0, dueResult.breakdown.principal - totalAllocFromPrincipalBucket - totalDiscountFromPrincipalBucket),
       );
       const totalRemaining = round2(penaltyRemaining + interestRemaining + principalRemaining);
       const hasRemainingBalance = !isZeroMoney(totalRemaining);
