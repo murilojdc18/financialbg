@@ -93,6 +93,18 @@ export default function OperacaoDetalhes() {
             Voltar
           </Button>
           <div className="flex items-center gap-2">
+            <ReprocessReceivablesButton
+              operationId={operation.id}
+              operationData={{
+                principal: Number(operation.principal),
+                rate_monthly: Number(operation.rate_monthly),
+                term_months: operation.term_months,
+                system: operation.system,
+                start_date: operation.start_date,
+                fee_fixed: Number(operation.fee_fixed ?? 0),
+                fee_insurance: Number(operation.fee_insurance ?? 0),
+              }}
+            />
             <Button variant="outline" onClick={() => navigate(`/operacoes/${id}/print`)}>
               <Printer className="h-4 w-4 mr-2" />
               Preview Cliente
