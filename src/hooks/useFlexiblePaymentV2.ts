@@ -11,6 +11,7 @@ import {
 } from '@/lib/receivable-calculator';
 import { ReceivableStatus, PaymentMethod } from '@/types/database';
 import { ContractInterestBreakdown } from '@/lib/contract-interest-calculator';
+import { isZeroMoney, round2 } from '@/lib/money';
 
 export interface ReceivableForPayment {
   id: string;
@@ -109,12 +110,36 @@ export function useFlexiblePaymentV2() {
         scheduleBreakdown,
         manualAdjustment,
       } = input;
+
+      const roundedAmountTotal = round2(amountTotal);
+      const normalizedAllocation = {
+        penalty: round2(allocation.penalty),
+        lateInterest: round2(allocation.lateInterest),
+        contractInterest: round2(allocation.contractInterest),
+        principal: round2(allocation.principal),
+      };
+      const normalizedDiscounts = {
+        penalty: round2(discounts.penalty),
+        lateInterest: round2(discounts.lateInterest),
+        contractInterest: round2(discounts.contractInterest),
+        principal: round2(discounts.principal),
+      };
+      const totalAllocated = round2(
+        normalizedAllocation.penalty +
+          normalizedAllocation.lateInterest +
+          normalizedAllocation.contractInterest +
+          normalizedAllocation.principal
+      );
+
+      if (!isZeroMoney(totalAllocated - roundedAmountTotal)) {
+        throw new Error('A soma da alocação deve ser igual ao valor recebido.');
+      }
       
       // Configuração de juros/multa da operação
       const config: LateFeeConfig = {
         lateGraceDays: receivable.operations.late_grace_days ?? 0,
-        latePenaltyPercent: Number(receivable.operations.late_penalty_percent) ?? 10,
-        lateInterestDailyPercent: Number(receivable.operations.late_interest_daily_percent) ?? 0.5,
+        latePenaltyPercent: Number(receivable.operations.late_penalty_percent ?? 10),
+        lateInterestDailyPercent: Number(receivable.operations.late_interest_daily_percent ?? 0.5),
       };
 
       // Calcular encargos na data do pagamento (para referência)
@@ -135,16 +160,46 @@ export function useFlexiblePaymentV2() {
       );
 
       // Calcular saldo restante após alocação + descontos
-      const totalAllocInterest = allocation.lateInterest + allocation.contractInterest;
-      const totalDiscountInterest = discounts.lateInterest + discounts.contractInterest;
-      const penaltyRemaining = Math.max(0, dueResult.breakdown.penalty - allocation.penalty - discounts.penalty);
-      const interestRemaining = Math.max(0, dueResult.breakdown.interest - totalAllocInterest - totalDiscountInterest);
-      const principalRemaining = Math.max(0, dueResult.breakdown.principal - allocation.principal - discounts.principal);
-      const totalRemaining = penaltyRemaining + interestRemaining + principalRemaining;
+      const totalAllocInterest = round2(normalizedAllocation.lateInterest + normalizedAllocation.contractInterest);
+      const totalDiscountInterest = round2(normalizedDiscounts.lateInterest + normalizedDiscounts.contractInterest);
+      const penaltyRemaining = round2(
+        Math.max(0, dueResult.breakdown.penalty - normalizedAllocation.penalty - normalizedDiscounts.penalty)
+      );
+      const interestRemaining = round2(
+        Math.max(0, dueResult.breakdown.interest - totalAllocInterest - totalDiscountInterest)
+      );
+      const principalRemaining = round2(
+        Math.max(0, dueResult.breakdown.principal - normalizedAllocation.principal - normalizedDiscounts.principal)
+      );
+      const totalRemaining = round2(penaltyRemaining + interestRemaining + principalRemaining);
+      const hasRemainingBalance = !isZeroMoney(totalRemaining);
+      const saldoRestante = {
+        principal: isZeroMoney(principalRemaining) ? 0 : principalRemaining,
+        penalty: isZeroMoney(penaltyRemaining) ? 0 : penaltyRemaining,
+        interest: isZeroMoney(interestRemaining) ? 0 : interestRemaining,
+        total: hasRemainingBalance ? totalRemaining : 0,
+      };
+      const deferAmount = defer ? round2(defer.amount) : 0;
+      const hasValidDeferDate = Boolean(defer?.toDate && !Number.isNaN(defer.toDate.getTime()));
+      const hasValidDefer = Boolean(defer && deferAmount >= 0.01 && hasValidDeferDate);
+      const canReissueInterestOnly = Boolean(
+        isInterestOnlyPayment &&
+          scheduleBreakdown &&
+          scheduleBreakdown.installmentTotal > 0 &&
+          normalizedAllocation.principal < 0.01 &&
+          normalizedAllocation.contractInterest > 0.01 &&
+          dueResult.breakdown.principal > 0.01
+      );
+
+      if (hasRemainingBalance && !hasValidDefer) {
+        throw new Error('Existe saldo remanescente. Informe valor e vencimento válidos para a nova parcela.');
+      }
 
       // Any payment always marks the original as PAGO
       const newStatus: ReceivableStatus = 'PAGO';
-      const newAmountPaid = (receivable.amount_paid ?? 0) + amountTotal;
+      const newAmountPaid = round2((receivable.amount_paid ?? 0) + roundedAmountTotal);
+      const paidAtIso = paymentDate.toISOString();
+      const paidAtDate = paidAtIso.split('T')[0];
 
       // 1. Inserir registro de pagamento com alocação e descontos
       const { error: paymentError } = await supabase
@@ -153,19 +208,19 @@ export function useFlexiblePaymentV2() {
           receivable_id: receivable.id,
           client_id: receivable.client_id,
           operation_id: receivable.operation_id,
-          amount: amountTotal,
-          amount_total: amountTotal,
-          alloc_penalty: allocation.penalty,
-          alloc_interest: allocation.lateInterest + allocation.contractInterest,
-          alloc_late_interest: allocation.lateInterest,
-          alloc_contract_interest: allocation.contractInterest,
-          alloc_principal: allocation.principal,
-          discount_penalty: discounts.penalty,
-          discount_interest: discounts.lateInterest + discounts.contractInterest,
-          discount_late_interest: discounts.lateInterest,
-          discount_contract_interest: discounts.contractInterest,
-          discount_principal: discounts.principal,
-          paid_at: paymentDate.toISOString(),
+          amount: roundedAmountTotal,
+          amount_total: roundedAmountTotal,
+          alloc_penalty: normalizedAllocation.penalty,
+          alloc_interest: totalAllocInterest,
+          alloc_late_interest: normalizedAllocation.lateInterest,
+          alloc_contract_interest: normalizedAllocation.contractInterest,
+          alloc_principal: normalizedAllocation.principal,
+          discount_penalty: normalizedDiscounts.penalty,
+          discount_interest: totalDiscountInterest,
+          discount_late_interest: normalizedDiscounts.lateInterest,
+          discount_contract_interest: normalizedDiscounts.contractInterest,
+          discount_principal: normalizedDiscounts.principal,
+          paid_at: paidAtIso,
           method: paymentMethod,
           note: note || null,
         });
@@ -179,12 +234,12 @@ export function useFlexiblePaymentV2() {
         amount_paid: newAmountPaid,
         penalty_amount: dueResult.totalPenalty,
         interest_accrued: dueResult.totalInterest,
-        last_interest_calc_at: paymentDate.toISOString().split('T')[0],
+        last_interest_calc_at: paidAtDate,
         status: 'PAGO' as ReceivableStatus,
         penalty_applied: shouldApplyPenalty,
-        paid_at: paymentDate.toISOString(),
+        paid_at: paidAtIso,
         payment_method: paymentMethod,
-        accrual_frozen_at: paymentDate.toISOString().split('T')[0],
+        accrual_frozen_at: paidAtDate,
       };
 
       const { error: updateError } = await supabase
@@ -194,12 +249,22 @@ export function useFlexiblePaymentV2() {
 
       if (updateError) throw updateError;
 
+      if (!hasRemainingBalance) {
+        return {
+          receivableId: receivable.id,
+          newReceivableId: null,
+          allocation: normalizedAllocation,
+          discounts: normalizedDiscounts,
+          newStatus,
+          isInterestOnlyPayment: false,
+          saldoRestante,
+        };
+      }
+
       // 3. Reemitir saldo se solicitado (criar nova parcela como N+1)
-      // CRITICAL GUARD: Only create new installment if there's actual remaining balance
       let newReceivableId: string | null = null;
-      const hasActualRemaining = totalRemaining > 0.01;
       
-      if (defer && defer.amount > 0.01 && hasActualRemaining) {
+      if (defer && hasValidDefer) {
         const newDueDate = defer.toDate;
         const currentN = receivable.installment_number;
         const newInstallmentNumber = currentN + 1;
@@ -238,23 +303,23 @@ export function useFlexiblePaymentV2() {
         let newCarriedInterest = 0;
         let renegotiationNote: string;
 
-        if (isInterestOnlyPayment && scheduleBreakdown && scheduleBreakdown.installmentTotal > 0) {
+        if (canReissueInterestOnly && scheduleBreakdown) {
           // ===== INTEREST-ONLY: Reissue a COMPLETE copy of the current installment =====
           // The amortization wasn't paid, so we reissue the same installment total
-          newInstallmentAmount = scheduleBreakdown.installmentTotal;
+          newInstallmentAmount = round2(scheduleBreakdown.installmentTotal);
           renegotiationNote = `Pagamento somente de juros. Parcela completa reemitida como ${newInstallmentNumber}ª (${newDueDate.toISOString().split('T')[0]}): Juros Contratual R$ ${scheduleBreakdown.contractInterest.toFixed(2)} + Amortização R$ ${scheduleBreakdown.amortization.toFixed(2)} = Total R$ ${scheduleBreakdown.installmentTotal.toFixed(2)}`;
         } else {
           // ===== STANDARD DEFER: carry only the remaining balance =====
           const deferAllocation = allocateDeferToComponents(
-            defer.amount,
+            deferAmount,
             penaltyRemaining,
             interestRemaining,
             principalRemaining,
             defer.priority || 'principal'
           );
-          newInstallmentAmount = deferAllocation.carriedPrincipal;
-          newCarriedPenalty = deferAllocation.carriedPenalty;
-          newCarriedInterest = deferAllocation.carriedInterest;
+          newInstallmentAmount = round2(deferAllocation.carriedPrincipal);
+          newCarriedPenalty = round2(deferAllocation.carriedPenalty);
+          newCarriedInterest = round2(deferAllocation.carriedInterest);
           renegotiationNote = `Parcela reemitida para ${newInstallmentNumber} (${newDueDate.toISOString().split('T')[0]}): Principal R$ ${deferAllocation.carriedPrincipal.toFixed(2)} + Multa R$ ${deferAllocation.carriedPenalty.toFixed(2)} + Juros R$ ${deferAllocation.carriedInterest.toFixed(2)}`;
         }
 
@@ -263,12 +328,12 @@ export function useFlexiblePaymentV2() {
         let adjustmentReason = '';
         let isManualAmount = false;
 
-        if (manualAdjustment && Math.abs(manualAdjustment.amount) > 0.01) {
-          adjustmentAmount = manualAdjustment.amount;
+        if (manualAdjustment && !isZeroMoney(manualAdjustment.amount)) {
+          adjustmentAmount = round2(manualAdjustment.amount);
           adjustmentReason = manualAdjustment.reason;
           isManualAmount = true;
           // Override the installment amount with the final amount
-          newInstallmentAmount = manualAdjustment.finalAmount;
+          newInstallmentAmount = round2(manualAdjustment.finalAmount);
           renegotiationNote += ` | Ajuste manual: R$ ${adjustmentAmount > 0 ? '+' : ''}${adjustmentAmount.toFixed(2)} (${adjustmentReason})`;
         }
 
@@ -317,16 +382,11 @@ export function useFlexiblePaymentV2() {
       return {
         receivableId: receivable.id,
         newReceivableId,
-        allocation,
-        discounts,
+        allocation: normalizedAllocation,
+        discounts: normalizedDiscounts,
         newStatus,
-        isInterestOnlyPayment: isInterestOnlyPayment ?? false,
-        saldoRestante: {
-          principal: principalRemaining,
-          penalty: penaltyRemaining,
-          interest: interestRemaining,
-          total: totalRemaining,
-        },
+        isInterestOnlyPayment: canReissueInterestOnly,
+        saldoRestante,
       };
     },
     onSuccess: (result) => {
