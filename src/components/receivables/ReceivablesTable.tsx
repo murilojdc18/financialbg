@@ -282,7 +282,7 @@ export function ReceivablesTable({
               const balance = isPaid ? 0 : (feeResult?.breakdown.total ?? receivable.amount);
 
               return (
-                <TableRow key={receivable.id}>
+                <TableRow key={receivable.id} data-testid="receivable-row">
                   <TableCell className="font-medium">
                     {receivable.installment_number}ª
                     {hasCarriedFees && (
