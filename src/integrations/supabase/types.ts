@@ -705,21 +705,38 @@ export type Database = {
     }
     Functions: {
       cleanup_old_claim_attempts: { Args: never; Returns: undefined }
-      create_operation_with_receivables: {
-        Args: {
-          p_client_id: string
-          p_fee_fixed?: number
-          p_fee_insurance?: number
-          p_notes?: string
-          p_principal: number
-          p_rate_monthly: number
-          p_receivables?: Json
-          p_start_date: string
-          p_system: Database["public"]["Enums"]["operation_system"]
-          p_term_months: number
-        }
-        Returns: string
-      }
+      create_operation_with_receivables:
+        | {
+            Args: {
+              p_client_id: string
+              p_fee_fixed?: number
+              p_fee_insurance?: number
+              p_notes?: string
+              p_principal: number
+              p_rate_monthly: number
+              p_receivables?: Json
+              p_start_date: string
+              p_system: Database["public"]["Enums"]["operation_system"]
+              p_term_months: number
+            }
+            Returns: string
+          }
+        | {
+            Args: {
+              p_cash_source?: string
+              p_client_id: string
+              p_fee_fixed?: number
+              p_fee_insurance?: number
+              p_notes?: string
+              p_principal: number
+              p_rate_monthly: number
+              p_receivables?: Json
+              p_start_date: string
+              p_system: Database["public"]["Enums"]["operation_system"]
+              p_term_months: number
+            }
+            Returns: string
+          }
       get_my_client_id: { Args: never; Returns: string }
       get_my_role: { Args: never; Returns: string }
       has_role:
