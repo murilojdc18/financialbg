@@ -28,6 +28,7 @@ import { useOperation } from "@/hooks/useOperations";
 import { formatCurrency, formatPercent, calculateLoan } from "@/lib/loan-calculator";
 import { InstallmentScheduleTable } from "@/components/simulator/InstallmentScheduleTable";
 import { ReceivablesSection } from "@/components/operations/ReceivablesSection";
+import { ReprocessReceivablesButton } from "@/components/operations/ReprocessReceivablesButton";
 import { StatusSelect } from "@/components/operations/StatusSelect";
 import { DeleteOperationDialog } from "@/components/operations/DeleteOperationDialog";
 import { format, parseISO } from "date-fns";
