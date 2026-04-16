@@ -225,6 +225,7 @@ export function useFlexiblePaymentV2() {
       const hasValidDeferDate = Boolean(defer?.toDate && !Number.isNaN(defer.toDate.getTime()));
       const hasValidDefer = Boolean(defer && deferAmount >= 0.01 && hasValidDeferDate);
       const canReissueInterestOnly = Boolean(
+        hasRemainingBalance &&
         isInterestOnlyPayment &&
         scheduleBreakdown &&
         scheduleBreakdown.installmentTotal > 0 &&
