@@ -739,6 +739,7 @@ function FlexiblePaymentDialogInner({
                             value={safeNumber(field.value)}
                             onValueChange={field.onChange}
                             className="h-8 text-sm"
+                            data-testid="payment-alloc-contract-interest"
                           />
                         </FormControl>
                       </FormItem>
