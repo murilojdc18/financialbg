@@ -208,6 +208,7 @@ export default function Login() {
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={loading}
                 required
+                data-testid="login-email"
               />
             </div>
             <div className="space-y-2">
@@ -220,11 +221,12 @@ export default function Login() {
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={loading}
                 required
+                data-testid="login-password"
               />
             </div>
           </CardContent>
           <CardFooter className="flex flex-col gap-4">
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full" disabled={loading} data-testid="login-submit">
               {loading ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (

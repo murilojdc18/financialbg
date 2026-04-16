@@ -409,6 +409,7 @@ export function ReceivablesTable({
                           size="sm"
                           onClick={() => handleMarkAsPaid(receivable)}
                           className="gap-1"
+                          data-testid="btn-pay-receivable"
                         >
                           <CheckCircle className="h-4 w-4" />
                           Pagar

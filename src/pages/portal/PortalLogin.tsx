@@ -205,6 +205,7 @@ export default function PortalLogin() {
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={isLoading}
                 autoComplete="email"
+                data-testid="portal-login-email"
               />
             </div>
             <div className="space-y-2">
@@ -217,9 +218,10 @@ export default function PortalLogin() {
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={isLoading}
                 autoComplete="current-password"
+                data-testid="portal-login-password"
               />
             </div>
-            <Button type="submit" className="w-full" disabled={isLoading}>
+            <Button type="submit" className="w-full" disabled={isLoading} data-testid="portal-login-submit">
               {isLoading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
