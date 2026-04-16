@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -55,6 +55,7 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/loan-calculator";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { isZeroMoney, round2 } from "@/lib/money";
 import { 
   calculateReceivableDue, 
   allocateDeferToComponents,
@@ -79,12 +80,6 @@ function safeNumber(n: unknown): number {
 /** Safe formatCurrency wrapper */
 function safeCurrency(n: unknown): string {
   return formatCurrency(safeNumber(n));
-}
-
-/** Safe round to 2 decimal places */
-function round2(n: number): number {
-  const val = safeNumber(n);
-  return Math.round(val * 100) / 100;
 }
 
 // Schema com validação — 4 campos de alocação
@@ -167,9 +162,11 @@ function FlexiblePaymentDialogInner({
   onSuccess,
 }: FlexiblePaymentDialogProps) {
   const flexiblePayment = useFlexiblePaymentV2();
+  const submitLockRef = useRef(false);
   const [dueResult, setDueResult] = useState<ReceivableDueResult | null>(null);
   const [scheduleBreakdown, setScheduleBreakdown] = useState<ContractInterestBreakdown | null>(null);
   const [discountsOpen, setDiscountsOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -359,10 +356,15 @@ function FlexiblePaymentDialogInner({
     };
   }, [fourComponentDue, watchAllocPenalty, watchAllocLateInterest, watchAllocContractInterest, watchAllocPrincipal, watchDiscountPenalty, watchDiscountLateInterest, watchDiscountContractInterest, watchDiscountPrincipal]);
 
+  const hasRemainingBalance = useMemo(() => !isZeroMoney(balanceBreakdown.total), [balanceBreakdown.total]);
+  const hasManualAdjustment = useMemo(() => !isZeroMoney(manualAdjustment), [manualAdjustment]);
+  const hasValidDeferDate = Boolean(watchDeferToDate && !Number.isNaN(watchDeferToDate.getTime()));
+  const isSubmitting = isSaving || flexiblePayment.isPending;
+
   // When balance > 0, auto-force defer and set customDeferAmount + finalNewInstallmentAmount
   // When balance == 0, reset defer state to prevent spurious installment creation
   useEffect(() => {
-    if (balanceBreakdown.total > 0.01) {
+    if (hasRemainingBalance) {
       form.setValue("deferOption", "defer");
       let baseAmount: number;
       if (isInterestOnlyPayment && scheduleBreakdown) {
@@ -383,7 +385,7 @@ function FlexiblePaymentDialogInner({
       form.setValue("finalNewInstallmentAmount", 0);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [balanceBreakdown.total, isInterestOnlyPayment, scheduleBreakdown]);
+  }, [hasRemainingBalance, balanceBreakdown.total, isInterestOnlyPayment, scheduleBreakdown]);
 
   // Computed: base amount for new installment (read-only reference)
   const newInstallmentBaseAmount = useMemo(() => {
@@ -422,20 +424,28 @@ function FlexiblePaymentDialogInner({
   const validationErrors = useMemo(() => {
     const errors: string[] = [];
     
-    if (watchAmountTotal > 0 && allocationDifference !== 0) {
+    if (watchAmountTotal > 0 && !isZeroMoney(allocationDifference)) {
       errors.push(`Soma da alocação (${safeCurrency(totalAllocated)}) deve ser igual ao valor recebido (${safeCurrency(watchAmountTotal)})`);
     }
     
-    if (balanceBreakdown.total > 0.01) {
+    if (hasRemainingBalance) {
       if (watchDeferOption !== "defer") {
         errors.push(`Existe saldo remanescente de ${safeCurrency(balanceBreakdown.total)}. Para concluir o pagamento, você precisa postergar esse saldo para uma nova parcela.`);
+      }
+
+      if (round2(watchCustomDeferAmount) < 0.01) {
+        errors.push("Informe um valor válido para a nova parcela.");
+      }
+
+      if (!hasValidDeferDate) {
+        errors.push("Informe uma data válida para o vencimento da nova parcela.");
       }
     }
 
     return errors;
-  }, [allocationDifference, totalAllocated, watchAmountTotal, watchDeferOption, balanceBreakdown.total]);
+  }, [allocationDifference, totalAllocated, watchAmountTotal, hasRemainingBalance, watchDeferOption, balanceBreakdown.total, watchCustomDeferAmount, hasValidDeferDate]);
 
-  const canSubmit = validationErrors.length === 0 && watchAmountTotal > 0 && (balanceBreakdown.total <= 0.01 || watchDeferOption === "defer");
+  const canSubmit = validationErrors.length === 0 && watchAmountTotal > 0 && (!hasRemainingBalance || watchDeferOption === "defer");
 
   // Sync deferDays -> deferToDate
   useEffect(() => {
@@ -450,14 +460,16 @@ function FlexiblePaymentDialogInner({
   }, [watchDeferDays, watchPaidAt]);
 
   const handleSubmit = async (values: FormValues) => {
-    if (!receivable || !canSubmit) return;
+    if (!receivable || !canSubmit || submitLockRef.current || isSubmitting) return;
 
+    submitLockRef.current = true;
+    setIsSaving(true);
     try {
       const adjustmentAmount = round2(safeNumber(values.finalNewInstallmentAmount) - newInstallmentBaseAmount);
 
       // CRITICAL: Only allow defer/reissue if there's actual remaining balance
-      const hasRealBalance = balanceBreakdown.total > 0.01;
-      const shouldDefer = hasRealBalance && values.deferOption === "defer" && safeNumber(values.customDeferAmount) > 0.01;
+      const hasRealBalance = !isZeroMoney(balanceBreakdown.total);
+      const shouldDefer = hasRealBalance && values.deferOption === "defer" && round2(safeNumber(values.customDeferAmount)) >= 0.01 && Boolean(values.deferToDate && !Number.isNaN(values.deferToDate.getTime()));
       const shouldReissueInterestOnly = hasRealBalance && isInterestOnlyPayment;
 
       await flexiblePayment.mutateAsync({
@@ -479,13 +491,13 @@ function FlexiblePaymentDialogInner({
           principal: safeNumber(values.discountPrincipal),
         },
         defer: shouldDefer ? {
-          amount: safeNumber(values.customDeferAmount),
+          amount: round2(safeNumber(values.customDeferAmount)),
           toDate: values.deferToDate,
           priority: values.deferPriority as DeferPriority,
         } : undefined,
         isInterestOnlyPayment: shouldReissueInterestOnly,
         scheduleBreakdown: shouldReissueInterestOnly ? scheduleBreakdown : null,
-        manualAdjustment: shouldDefer && Math.abs(adjustmentAmount) > 0.01 ? {
+        manualAdjustment: shouldDefer && !isZeroMoney(adjustmentAmount) ? {
           amount: adjustmentAmount,
           reason: values.adjustmentReason || '',
           finalAmount: safeNumber(values.finalNewInstallmentAmount),
@@ -499,10 +511,15 @@ function FlexiblePaymentDialogInner({
     } catch (err) {
       console.error("[FlexiblePayment] Submit error:", err);
       // Error toast is handled by the mutation's onError
+    } finally {
+      submitLockRef.current = false;
+      setIsSaving(false);
     }
   };
 
   const handleOpenChange = (newOpen: boolean) => {
+    if (!newOpen && isSubmitting) return;
+
     if (!newOpen) {
       form.reset();
       setDueResult(null);
@@ -863,10 +880,10 @@ function FlexiblePaymentDialogInner({
               {/* ========== SALDO REMANESCENTE (SEMPRE VISÍVEL) — 4 COMPONENTES ========== */}
               <div className={cn(
                 "rounded-lg border p-4 space-y-2",
-                balanceBreakdown.total > 0.01 ? "bg-amber-50 border-amber-300 dark:bg-amber-950/30 dark:border-amber-700" : "bg-muted/30"
+                hasRemainingBalance ? "bg-amber-50 border-amber-300 dark:bg-amber-950/30 dark:border-amber-700" : "bg-muted/30"
               )}>
                 <p className="font-medium text-sm">
-                  {balanceBreakdown.total > 0.01 
+                  {hasRemainingBalance 
                     ? "⚠️ Saldo que será postergado (obrigatório):" 
                     : "Saldo remanescente (atualizado):"}
                 </p>
@@ -898,7 +915,7 @@ function FlexiblePaymentDialogInner({
               </div>
 
               {/* Postergação obrigatória quando há saldo */}
-              {balanceBreakdown.total > 0.01 && (
+              {hasRemainingBalance && (
                 <>
                   {/* ========== INTEREST-ONLY DETECTION ========== */}
                   {isInterestOnlyPayment && scheduleBreakdown ? (
@@ -972,7 +989,7 @@ function FlexiblePaymentDialogInner({
                               </FormItem>
                             )}
                           />
-                          {Math.abs(manualAdjustment) > 0.01 && (
+                          {hasManualAdjustment && (
                             <div className={cn(
                               "flex justify-between text-sm p-2 rounded border",
                               manualAdjustment > 0 ? "bg-amber-50 border-amber-300 dark:bg-amber-950/30 dark:border-amber-700" : "bg-green-50 border-green-300 dark:bg-green-950/30 dark:border-green-700"
@@ -1164,7 +1181,7 @@ function FlexiblePaymentDialogInner({
                                 </FormItem>
                               )}
                             />
-                            {Math.abs(manualAdjustment) > 0.01 && (
+                            {hasManualAdjustment && (
                               <div className={cn(
                                 "flex justify-between text-sm p-2 rounded border",
                                 manualAdjustment > 0 ? "bg-amber-50 border-amber-300 dark:bg-amber-950/30 dark:border-amber-700" : "bg-green-50 border-green-300 dark:bg-green-950/30 dark:border-green-700"
@@ -1294,15 +1311,15 @@ function FlexiblePaymentDialogInner({
                   type="button" 
                   variant="outline" 
                   onClick={() => handleOpenChange(false)} 
-                  disabled={flexiblePayment.isPending}
+                  disabled={isSubmitting}
                 >
                   Cancelar
                 </Button>
                 <Button 
                   type="submit" 
-                  disabled={flexiblePayment.isPending || !canSubmit}
+                  disabled={isSubmitting || !canSubmit}
                 >
-                  {flexiblePayment.isPending ? (
+                  {isSubmitting ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       Registrando...
