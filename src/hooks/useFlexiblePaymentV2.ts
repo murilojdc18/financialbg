@@ -1,17 +1,17 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
-import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/contexts/AuthContext';
-import { addMonths } from 'date-fns';
-import { 
-  calculateReceivableDue, 
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+import { addDays } from "date-fns";
+import {
+  calculateReceivableDue,
   allocateDeferToComponents,
   LateFeeConfig,
   DeferPriority,
-} from '@/lib/receivable-calculator';
-import { ReceivableStatus, PaymentMethod } from '@/types/database';
-import { ContractInterestBreakdown } from '@/lib/contract-interest-calculator';
-import { isZeroMoney, round2 } from '@/lib/money';
+} from "@/lib/receivable-calculator";
+import { ReceivableStatus, PaymentMethod } from "@/types/database";
+import { ContractInterestBreakdown } from "@/lib/contract-interest-calculator";
+import { isZeroMoney, round2 } from "@/lib/money";
 
 export interface ReceivableForPayment {
   id: string;
@@ -82,6 +82,38 @@ export interface FlexiblePaymentV2Input {
 }
 
 /**
+ * Calcula o intervalo em dias entre duas parcelas consecutivas.
+ * Usado para shift das parcelas futuras ao inserir N+1.
+ * BUG CORRIGIDO: antes usava addMonths(+1) fixo, que pode deslocar datas incorretamente
+ * em operações com vencimentos em dias diferentes do ciclo mensal.
+ * Agora calcula o intervalo real entre a parcela N e N+1 e replica esse intervalo.
+ */
+function calcShiftDays(
+  futureInstallments: { installment_number: number; due_date: string }[],
+  newInstallmentNumber: number,
+  newDueDate: Date,
+): number {
+  // Encontra a parcela que vai ser deslocada para N+2 (era N+1)
+  const nextInLine = futureInstallments.find((i) => i.installment_number === newInstallmentNumber);
+
+  if (!nextInLine) return 30; // fallback
+
+  // O intervalo correto é: quantos dias estão entre a nova parcela (N+1) e a N+1 original
+  const existingDueDate = new Date(nextInLine.due_date + "T12:00:00"); // noon para evitar DST
+  const newDueDateNoon = new Date(newDueDate);
+  newDueDateNoon.setHours(12, 0, 0, 0);
+
+  const diffMs = existingDueDate.getTime() - newDueDateNoon.getTime();
+  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+  // Se a nova parcela está ANTES da existente N+1, precisamos empurrar as futuras
+  // pelo mesmo intervalo que seria entre a N+1 nova e a N+1 existente.
+  // Se negativo (nova data é depois da existente), usar 30 dias como fallback seguro.
+  if (diffDays <= 0) return 30;
+  return diffDays;
+}
+
+/**
  * Hook V2 para registro de pagamento totalmente flexível
  * - Alocação editável (admin define onde vai cada centavo)
  * - Descontos/isenções negociadas
@@ -95,16 +127,16 @@ export function useFlexiblePaymentV2() {
 
   return useMutation({
     mutationFn: async (input: FlexiblePaymentV2Input & { receivable: ReceivableForPayment }) => {
-      if (!user) throw new Error('Usuário não autenticado');
+      if (!user) throw new Error("Usuário não autenticado");
 
-      const { 
-        receivable, 
-        amountTotal, 
-        paymentDate, 
-        paymentMethod, 
-        note, 
-        allocation, 
-        discounts, 
+      const {
+        receivable,
+        amountTotal,
+        paymentDate,
+        paymentMethod,
+        note,
+        allocation,
+        discounts,
         defer,
         isInterestOnlyPayment,
         scheduleBreakdown,
@@ -128,13 +160,13 @@ export function useFlexiblePaymentV2() {
         normalizedAllocation.penalty +
           normalizedAllocation.lateInterest +
           normalizedAllocation.contractInterest +
-          normalizedAllocation.principal
+          normalizedAllocation.principal,
       );
 
       if (!isZeroMoney(totalAllocated - roundedAmountTotal)) {
-        throw new Error('A soma da alocação deve ser igual ao valor recebido.');
+        throw new Error("A soma da alocação deve ser igual ao valor recebido.");
       }
-      
+
       // Configuração de juros/multa da operação
       const config: LateFeeConfig = {
         lateGraceDays: receivable.operations.late_grace_days ?? 0,
@@ -156,20 +188,20 @@ export function useFlexiblePaymentV2() {
           dueDate: receivable.due_date,
         },
         config,
-        paymentDate
+        paymentDate,
       );
 
       // Calcular saldo restante após alocação + descontos
       const totalAllocInterest = round2(normalizedAllocation.lateInterest + normalizedAllocation.contractInterest);
       const totalDiscountInterest = round2(normalizedDiscounts.lateInterest + normalizedDiscounts.contractInterest);
       const penaltyRemaining = round2(
-        Math.max(0, dueResult.breakdown.penalty - normalizedAllocation.penalty - normalizedDiscounts.penalty)
+        Math.max(0, dueResult.breakdown.penalty - normalizedAllocation.penalty - normalizedDiscounts.penalty),
       );
       const interestRemaining = round2(
-        Math.max(0, dueResult.breakdown.interest - totalAllocInterest - totalDiscountInterest)
+        Math.max(0, dueResult.breakdown.interest - totalAllocInterest - totalDiscountInterest),
       );
       const principalRemaining = round2(
-        Math.max(0, dueResult.breakdown.principal - normalizedAllocation.principal - normalizedDiscounts.principal)
+        Math.max(0, dueResult.breakdown.principal - normalizedAllocation.principal - normalizedDiscounts.principal),
       );
       const totalRemaining = round2(penaltyRemaining + interestRemaining + principalRemaining);
       const hasRemainingBalance = !isZeroMoney(totalRemaining);
@@ -184,58 +216,56 @@ export function useFlexiblePaymentV2() {
       const hasValidDefer = Boolean(defer && deferAmount >= 0.01 && hasValidDeferDate);
       const canReissueInterestOnly = Boolean(
         isInterestOnlyPayment &&
-          scheduleBreakdown &&
-          scheduleBreakdown.installmentTotal > 0 &&
-          normalizedAllocation.principal < 0.01 &&
-          normalizedAllocation.contractInterest > 0.01 &&
-          dueResult.breakdown.principal > 0.01
+        scheduleBreakdown &&
+        scheduleBreakdown.installmentTotal > 0 &&
+        normalizedAllocation.principal < 0.01 &&
+        normalizedAllocation.contractInterest > 0.01 &&
+        dueResult.breakdown.principal > 0.01,
       );
 
       if (hasRemainingBalance && !hasValidDefer) {
-        throw new Error('Existe saldo remanescente. Informe valor e vencimento válidos para a nova parcela.');
+        throw new Error("Existe saldo remanescente. Informe valor e vencimento válidos para a nova parcela.");
       }
 
       // Any payment always marks the original as PAGO
-      const newStatus: ReceivableStatus = 'PAGO';
+      const newStatus: ReceivableStatus = "PAGO";
       const newAmountPaid = round2((receivable.amount_paid ?? 0) + roundedAmountTotal);
       const paidAtIso = paymentDate.toISOString();
-      const paidAtDate = paidAtIso.split('T')[0];
+      const paidAtDate = paidAtIso.split("T")[0];
 
       // 1. Inserir registro de pagamento com alocação e descontos
-      const { error: paymentError } = await supabase
-        .from('payments')
-        .insert({
-          receivable_id: receivable.id,
-          client_id: receivable.client_id,
-          operation_id: receivable.operation_id,
-          amount: roundedAmountTotal,
-          amount_total: roundedAmountTotal,
-          alloc_penalty: normalizedAllocation.penalty,
-          alloc_interest: totalAllocInterest,
-          alloc_late_interest: normalizedAllocation.lateInterest,
-          alloc_contract_interest: normalizedAllocation.contractInterest,
-          alloc_principal: normalizedAllocation.principal,
-          discount_penalty: normalizedDiscounts.penalty,
-          discount_interest: totalDiscountInterest,
-          discount_late_interest: normalizedDiscounts.lateInterest,
-          discount_contract_interest: normalizedDiscounts.contractInterest,
-          discount_principal: normalizedDiscounts.principal,
-          paid_at: paidAtIso,
-          method: paymentMethod,
-          note: note || null,
-        });
+      const { error: paymentError } = await supabase.from("payments").insert({
+        receivable_id: receivable.id,
+        client_id: receivable.client_id,
+        operation_id: receivable.operation_id,
+        amount: roundedAmountTotal,
+        amount_total: roundedAmountTotal,
+        alloc_penalty: normalizedAllocation.penalty,
+        alloc_interest: totalAllocInterest,
+        alloc_late_interest: normalizedAllocation.lateInterest,
+        alloc_contract_interest: normalizedAllocation.contractInterest,
+        alloc_principal: normalizedAllocation.principal,
+        discount_penalty: normalizedDiscounts.penalty,
+        discount_interest: totalDiscountInterest,
+        discount_late_interest: normalizedDiscounts.lateInterest,
+        discount_contract_interest: normalizedDiscounts.contractInterest,
+        discount_principal: normalizedDiscounts.principal,
+        paid_at: paidAtIso,
+        method: paymentMethod,
+        note: note || null,
+      });
 
       if (paymentError) throw paymentError;
 
       // 2. Atualizar receivable — SEMPRE como PAGO
       const shouldApplyPenalty = dueResult.penaltyCurrent > 0 || receivable.penalty_applied;
-      
+
       const receivableUpdate: Record<string, unknown> = {
         amount_paid: newAmountPaid,
         penalty_amount: dueResult.totalPenalty,
         interest_accrued: dueResult.totalInterest,
         last_interest_calc_at: paidAtDate,
-        status: 'PAGO' as ReceivableStatus,
+        status: "PAGO" as ReceivableStatus,
         penalty_applied: shouldApplyPenalty,
         paid_at: paidAtIso,
         payment_method: paymentMethod,
@@ -243,9 +273,9 @@ export function useFlexiblePaymentV2() {
       };
 
       const { error: updateError } = await supabase
-        .from('receivables')
+        .from("receivables")
         .update(receivableUpdate)
-        .eq('id', receivable.id);
+        .eq("id", receivable.id);
 
       if (updateError) throw updateError;
 
@@ -263,7 +293,7 @@ export function useFlexiblePaymentV2() {
 
       // 3. Reemitir saldo se solicitado (criar nova parcela como N+1)
       let newReceivableId: string | null = null;
-      
+
       if (defer && hasValidDefer) {
         const newDueDate = defer.toDate;
         const currentN = receivable.installment_number;
@@ -271,28 +301,36 @@ export function useFlexiblePaymentV2() {
 
         // ====== SHIFT FUTURE INSTALLMENTS (descending order to avoid conflicts) ======
         const { data: futureInstallments, error: fetchError } = await supabase
-          .from('receivables')
-          .select('id, installment_number, due_date')
-          .eq('operation_id', receivable.operation_id)
-          .gte('installment_number', newInstallmentNumber)
-          .order('installment_number', { ascending: false });
-        
+          .from("receivables")
+          .select("id, installment_number, due_date")
+          .eq("operation_id", receivable.operation_id)
+          .gte("installment_number", newInstallmentNumber)
+          .order("installment_number", { ascending: false });
+
         if (fetchError) throw fetchError;
 
         if (futureInstallments && futureInstallments.length > 0) {
+          // BUG CORRIGIDO: a versão anterior usava addMonths(currentDueDate, 1) fixo para todas
+          // as parcelas futuras. Isso é errado porque o intervalo entre as parcelas pode não ser
+          // exatamente 1 mês (ex: parcelas com vencimento em dia específico ou operações SAC
+          // com datas customizadas). Agora calculamos o intervalo real entre a nova parcela N+1
+          // e a parcela que já existia como N+1, e aplicamos esse mesmo intervalo em dias.
+          const shiftDays = calcShiftDays(futureInstallments, newInstallmentNumber, newDueDate);
+
           for (const installment of futureInstallments) {
             const newNumber = installment.installment_number + 1;
-            const currentDueDate = new Date(installment.due_date);
-            const shiftedDueDate = addMonths(currentDueDate, 1);
-            
+            // Shift: soma o intervalo calculado na data original de cada parcela futura
+            const currentDueDate = new Date(installment.due_date + "T12:00:00");
+            const shiftedDueDate = addDays(currentDueDate, shiftDays);
+
             const { error: shiftError } = await supabase
-              .from('receivables')
+              .from("receivables")
               .update({
                 installment_number: newNumber,
-                due_date: shiftedDueDate.toISOString().split('T')[0],
+                due_date: shiftedDueDate.toISOString().split("T")[0],
               })
-              .eq('id', installment.id);
-            
+              .eq("id", installment.id);
+
             if (shiftError) throw shiftError;
           }
         }
@@ -307,7 +345,7 @@ export function useFlexiblePaymentV2() {
           // ===== INTEREST-ONLY: Reissue a COMPLETE copy of the current installment =====
           // The amortization wasn't paid, so we reissue the same installment total
           newInstallmentAmount = round2(scheduleBreakdown.installmentTotal);
-          renegotiationNote = `Pagamento somente de juros. Parcela completa reemitida como ${newInstallmentNumber}ª (${newDueDate.toISOString().split('T')[0]}): Juros Contratual R$ ${scheduleBreakdown.contractInterest.toFixed(2)} + Amortização R$ ${scheduleBreakdown.amortization.toFixed(2)} = Total R$ ${scheduleBreakdown.installmentTotal.toFixed(2)}`;
+          renegotiationNote = `Pagamento somente de juros. Parcela completa reemitida como ${newInstallmentNumber}ª (${newDueDate.toISOString().split("T")[0]}): Juros Contratual R$ ${scheduleBreakdown.contractInterest.toFixed(2)} + Amortização R$ ${scheduleBreakdown.amortization.toFixed(2)} = Total R$ ${scheduleBreakdown.installmentTotal.toFixed(2)}`;
         } else {
           // ===== STANDARD DEFER: carry only the remaining balance =====
           const deferAllocation = allocateDeferToComponents(
@@ -315,17 +353,17 @@ export function useFlexiblePaymentV2() {
             penaltyRemaining,
             interestRemaining,
             principalRemaining,
-            defer.priority || 'principal'
+            defer.priority || "principal",
           );
           newInstallmentAmount = round2(deferAllocation.carriedPrincipal);
           newCarriedPenalty = round2(deferAllocation.carriedPenalty);
           newCarriedInterest = round2(deferAllocation.carriedInterest);
-          renegotiationNote = `Parcela reemitida para ${newInstallmentNumber} (${newDueDate.toISOString().split('T')[0]}): Principal R$ ${deferAllocation.carriedPrincipal.toFixed(2)} + Multa R$ ${deferAllocation.carriedPenalty.toFixed(2)} + Juros R$ ${deferAllocation.carriedInterest.toFixed(2)}`;
+          renegotiationNote = `Parcela reemitida para ${newInstallmentNumber} (${newDueDate.toISOString().split("T")[0]}): Principal R$ ${deferAllocation.carriedPrincipal.toFixed(2)} + Multa R$ ${deferAllocation.carriedPenalty.toFixed(2)} + Juros R$ ${deferAllocation.carriedInterest.toFixed(2)}`;
         }
 
         // Apply manual adjustment if provided
         let adjustmentAmount = 0;
-        let adjustmentReason = '';
+        let adjustmentReason = "";
         let isManualAmount = false;
 
         if (manualAdjustment && !isZeroMoney(manualAdjustment.amount)) {
@@ -334,49 +372,47 @@ export function useFlexiblePaymentV2() {
           isManualAmount = true;
           // Override the installment amount with the final amount
           newInstallmentAmount = round2(manualAdjustment.finalAmount);
-          renegotiationNote += ` | Ajuste manual: R$ ${adjustmentAmount > 0 ? '+' : ''}${adjustmentAmount.toFixed(2)} (${adjustmentReason})`;
+          renegotiationNote += ` | Ajuste manual: R$ ${adjustmentAmount > 0 ? "+" : ""}${adjustmentAmount.toFixed(2)} (${adjustmentReason})`;
         }
 
         // Insert new installment as N+1
         const newReceivableInsert: Record<string, unknown> = {
-            operation_id: receivable.operation_id,
-            client_id: receivable.client_id,
-            installment_number: newInstallmentNumber,
-            due_date: newDueDate.toISOString().split('T')[0],
-            amount: newInstallmentAmount,
-            status: 'EM_ABERTO' as ReceivableStatus,
-            amount_paid: 0,
-            penalty_applied: false,
-            penalty_amount: 0,
-            interest_accrued: 0,
-            carried_penalty_amount: newCarriedPenalty,
-            carried_interest_amount: newCarriedInterest,
-            renegotiated_from_receivable_id: receivable.id,
-            manual_adjustment_amount: adjustmentAmount,
-            manual_adjustment_reason: adjustmentReason || null,
-            is_manual_amount: isManualAmount,
+          operation_id: receivable.operation_id,
+          client_id: receivable.client_id,
+          installment_number: newInstallmentNumber,
+          due_date: newDueDate.toISOString().split("T")[0],
+          amount: newInstallmentAmount,
+          status: "EM_ABERTO" as ReceivableStatus,
+          amount_paid: 0,
+          penalty_applied: false,
+          penalty_amount: 0,
+          interest_accrued: 0,
+          carried_penalty_amount: newCarriedPenalty,
+          carried_interest_amount: newCarriedInterest,
+          renegotiated_from_receivable_id: receivable.id,
+          manual_adjustment_amount: adjustmentAmount,
+          manual_adjustment_reason: adjustmentReason || null,
+          is_manual_amount: isManualAmount,
         };
 
         const { data: newReceivable, error: insertError } = await supabase
-          .from('receivables')
+          .from("receivables")
           .insert(newReceivableInsert as any)
-          .select('id')
+          .select("id")
           .single();
 
         if (insertError) throw insertError;
-        
+
         newReceivableId = newReceivable?.id ?? null;
 
         // Update original with renegotiation link
         await supabase
-          .from('receivables')
+          .from("receivables")
           .update({
             renegotiated_to_receivable_id: newReceivableId,
-            notes: receivable.notes 
-              ? `${receivable.notes}\n${renegotiationNote}` 
-              : renegotiationNote,
+            notes: receivable.notes ? `${receivable.notes}\n${renegotiationNote}` : renegotiationNote,
           })
-          .eq('id', receivable.id);
+          .eq("id", receivable.id);
       }
 
       return {
@@ -390,29 +426,29 @@ export function useFlexiblePaymentV2() {
       };
     },
     onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ['receivables'] });
-      queryClient.invalidateQueries({ queryKey: ['payments'] });
-      queryClient.invalidateQueries({ queryKey: ['operations'] });
-      
+      queryClient.invalidateQueries({ queryKey: ["receivables"] });
+      queryClient.invalidateQueries({ queryKey: ["payments"] });
+      queryClient.invalidateQueries({ queryKey: ["operations"] });
+
       if (result.newReceivableId) {
         toast({
-          title: 'Parcela quitada!',
+          title: "Parcela quitada!",
           description: result.isInterestOnlyPayment
-            ? 'Pagamento de juros registrado. Parcela completa reemitida.'
-            : 'Saldo restante postergado para nova parcela.',
+            ? "Pagamento de juros registrado. Parcela completa reemitida."
+            : "Saldo restante postergado para nova parcela.",
         });
       } else {
         toast({
-          title: 'Parcela quitada!',
-          description: 'O pagamento foi registrado com sucesso.',
+          title: "Parcela quitada!",
+          description: "O pagamento foi registrado com sucesso.",
         });
       }
     },
     onError: (error) => {
       toast({
-        variant: 'destructive',
-        title: 'Erro ao registrar pagamento',
-        description: error instanceof Error ? error.message : 'Tente novamente.',
+        variant: "destructive",
+        title: "Erro ao registrar pagamento",
+        description: error instanceof Error ? error.message : "Tente novamente.",
       });
     },
   });
