@@ -22,6 +22,7 @@ export function useReceivables() {
             late_interest_daily_percent
           )
         `)
+        .is('deleted_at', null)
         .order('due_date');
       
       if (error) throw error;
@@ -38,6 +39,7 @@ export function useReceivablesByOperation(operationId: string) {
         .from('receivables')
         .select('*')
         .eq('operation_id', operationId)
+        .is('deleted_at', null)
         .order('installment_number');
       
       if (error) throw error;

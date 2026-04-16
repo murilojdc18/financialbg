@@ -15,7 +15,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle, Eye, History, Info, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
+import { CheckCircle, Eye, History, Info, ArrowUp, ArrowDown, ArrowUpDown, Trash2 } from "lucide-react";
 import { DbReceivableWithRelations, DbClient } from "@/types/database";
 import { formatCurrency } from "@/lib/loan-calculator";
 import { calculateReceivableDue, LateFeeConfig } from "@/lib/receivable-calculator";
@@ -25,6 +25,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { ReceivableForPayment } from "@/hooks/useFlexiblePaymentV2";
 import { FlexiblePaymentDialog } from "./FlexiblePaymentDialog";
 import { PaymentsHistoryDrawer } from "./PaymentsHistoryDrawer";
+import { DeleteReceivableDialog } from "./DeleteReceivableDialog";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 
@@ -61,6 +62,28 @@ export function ReceivablesTable({
   const [selectedReceivable, setSelectedReceivable] = useState<ReceivableForPayment | null>(null);
   const [selectedForHistory, setSelectedForHistory] = useState<{ id: string; number: number } | null>(null);
   const [sort, setSort] = useState<SortState>({ column: null, direction: null });
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [selectedForDelete, setSelectedForDelete] = useState<{
+    id: string; operation_id: string; installment_number: number; due_date: string; amount: number; status: string;
+  } | null>(null);
+
+  const handleDeleteReceivable = (receivable: DbReceivableWithRelations) => {
+    setSelectedForDelete({
+      id: receivable.id,
+      operation_id: receivable.operation_id,
+      installment_number: receivable.installment_number,
+      due_date: receivable.due_date,
+      amount: receivable.amount,
+      status: receivable.status,
+    });
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteSuccess = () => {
+    queryClient.invalidateQueries({ queryKey: ["receivables"] });
+    setDeleteDialogOpen(false);
+    setSelectedForDelete(null);
+  };
 
   const handleSort = useCallback((column: SortColumn) => {
     setSort((prev) => {
@@ -391,6 +414,19 @@ export function ReceivablesTable({
                           Pagar
                         </Button>
                       )}
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                            onClick={() => handleDeleteReceivable(receivable)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Excluir parcela</TooltipContent>
+                      </Tooltip>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -414,6 +450,14 @@ export function ReceivablesTable({
         onOpenChange={setHistoryOpen}
         receivableId={selectedForHistory?.id ?? null}
         installmentNumber={selectedForHistory?.number}
+      />
+
+      {/* Dialog de exclusão de parcela */}
+      <DeleteReceivableDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        receivable={selectedForDelete}
+        onSuccess={handleDeleteSuccess}
       />
     </TooltipProvider>
   );
