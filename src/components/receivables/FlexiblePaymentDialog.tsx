@@ -468,6 +468,23 @@ function FlexiblePaymentDialogInner({
       const shouldDefer = hasRealBalance && values.deferOption === "defer" && round2(safeNumber(values.customDeferAmount)) >= 0.01 && Boolean(values.deferToDate && !Number.isNaN(values.deferToDate.getTime()));
       const shouldReissueInterestOnly = hasRealBalance && isInterestOnlyPayment;
 
+      // Dev logging for troubleshooting
+      if (import.meta.env.DEV) {
+        console.info("[FlexiblePayment] Submit debug:", {
+          operationId: receivable.operation_id,
+          receivableId: receivable.id,
+          installment: receivable.installment_number,
+          totalDue: fourComponentDue?.total,
+          amountReceived: safeNumber(values.amountTotal),
+          totalAllocated,
+          balanceRemaining: balanceBreakdown.total,
+          hasRealBalance,
+          shouldDefer,
+          shouldReissueInterestOnly,
+          deferOption: values.deferOption,
+        });
+      }
+
       await flexiblePayment.mutateAsync({
         receivableId: receivable.id,
         amountTotal: safeNumber(values.amountTotal),

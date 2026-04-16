@@ -6,6 +6,7 @@ import {
   fillAmountTotal,
   expectNoBlockingErrors,
   isSubmitEnabled,
+  extractCurrencyValue,
 } from './helpers/payment-helpers';
 
 test.describe('7B — Interest-only payment does not crash', () => {
@@ -22,15 +23,12 @@ test.describe('7B — Interest-only payment does not crash', () => {
     // Read contract interest from summary
     const contractInterestRow = page.locator('text=Juros da operação (contratual):').locator('..').locator('span').last();
     const ciText = await contractInterestRow.textContent().catch(() => '');
-    const ciMatch = ciText?.match(/[\d.,]+/);
-    
-    if (!ciMatch || ciMatch[0] === '0,00') {
-      // No contract interest — skip
+    const ciValue = extractCurrencyValue(ciText);
+
+    if (!ciValue || ciValue === '0,00') {
       test.skip();
       return;
     }
-
-    const ciValue = ciMatch[0];
 
     // Fill amount = contract interest value
     await fillAmountTotal(page, ciValue);
@@ -51,6 +49,17 @@ test.describe('7B — Interest-only payment does not crash', () => {
     // Total allocated should show the value (no NaN)
     const allocText = await page.getByTestId('payment-total-allocated').textContent();
     expect(allocText).not.toContain('NaN');
+
+    // If there's remaining balance, defer section should appear (interest-only reissue)
+    const remainingEl = page.getByTestId('payment-remaining-total');
+    const remainingText = await remainingEl.textContent();
+    const hasRemaining = remainingText && !remainingText.includes('0,00');
+
+    if (hasRemaining) {
+      // Should show defer/reissue section
+      const deferSection = page.locator('text=Nova parcela será criada').or(page.locator('text=Saldo que será postergado'));
+      await expect(deferSection.first()).toBeVisible({ timeout: 3000 });
+    }
 
     // No page errors
     collector.assertNoPageErrors();
