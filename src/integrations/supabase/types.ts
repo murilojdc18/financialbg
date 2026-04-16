@@ -565,6 +565,9 @@ export type Database = {
           carried_penalty_amount: number | null
           client_id: string
           created_at: string | null
+          deleted_at: string | null
+          deleted_by: string | null
+          deleted_reason: string | null
           due_date: string
           id: string
           installment_number: number
@@ -593,6 +596,9 @@ export type Database = {
           carried_penalty_amount?: number | null
           client_id: string
           created_at?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
+          deleted_reason?: string | null
           due_date: string
           id?: string
           installment_number: number
@@ -621,6 +627,9 @@ export type Database = {
           carried_penalty_amount?: number | null
           client_id?: string
           created_at?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
+          deleted_reason?: string | null
           due_date?: string
           id?: string
           installment_number?: number

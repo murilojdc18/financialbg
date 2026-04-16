@@ -72,6 +72,10 @@ export interface DbReceivable {
   accrual_frozen_at: string | null;
   created_at: string;
   updated_at: string;
+  // Soft delete
+  deleted_at: string | null;
+  deleted_by: string | null;
+  deleted_reason: string | null;
 }
 
 export interface DbPayment {

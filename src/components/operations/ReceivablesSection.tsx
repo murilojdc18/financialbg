@@ -15,7 +15,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Loader2, Receipt, AlertCircle, Info, CheckCircle, History } from "lucide-react";
+import { Loader2, Receipt, AlertCircle, Info, CheckCircle, History, Trash2 } from "lucide-react";
 import { format, parseISO, isBefore, startOfDay } from "date-fns";
 import { formatCurrency } from "@/lib/loan-calculator";
 import { calculateReceivableDue, LateFeeConfig, ReceivableDueResult } from "@/lib/receivable-calculator";
@@ -24,6 +24,7 @@ import { ReceivableForPayment } from "@/hooks/useFlexiblePaymentV2";
 import { DbReceivable, ReceivableStatus } from "@/types/database";
 import { FlexiblePaymentDialog } from "@/components/receivables/FlexiblePaymentDialog";
 import { PaymentsHistoryDrawer } from "@/components/receivables/PaymentsHistoryDrawer";
+import { DeleteReceivableDialog } from "@/components/receivables/DeleteReceivableDialog";
 import { useQueryClient } from "@tanstack/react-query";
 import { StatusBadge } from "@/components/StatusBadge";
 
@@ -60,6 +61,28 @@ export function ReceivablesSection({ operationId, lateFeeConfig, operationData }
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedReceivable, setSelectedReceivable] = useState<ReceivableForPayment | null>(null);
   const [selectedForHistory, setSelectedForHistory] = useState<{ id: string; number: number } | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [selectedForDelete, setSelectedForDelete] = useState<{
+    id: string; operation_id: string; installment_number: number; due_date: string; amount: number; status: string;
+  } | null>(null);
+
+  const handleDeleteReceivable = (receivable: DbReceivable) => {
+    setSelectedForDelete({
+      id: receivable.id,
+      operation_id: receivable.operation_id,
+      installment_number: receivable.installment_number,
+      due_date: receivable.due_date,
+      amount: receivable.amount,
+      status: receivable.status,
+    });
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteSuccess = () => {
+    queryClient.invalidateQueries({ queryKey: ["receivables", "operation", operationId] });
+    setDeleteDialogOpen(false);
+    setSelectedForDelete(null);
+  };
 
   const handleMarkAsPaid = (receivable: DbReceivable) => {
     // Converter para ReceivableForPayment
@@ -343,6 +366,19 @@ export function ReceivablesSection({ operationId, lateFeeConfig, operationData }
                                 Pagar
                               </Button>
                             )}
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-destructive hover:text-destructive"
+                                  onClick={() => handleDeleteReceivable(receivable)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Excluir parcela</TooltipContent>
+                            </Tooltip>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -369,6 +405,14 @@ export function ReceivablesSection({ operationId, lateFeeConfig, operationData }
         onOpenChange={setHistoryOpen}
         receivableId={selectedForHistory?.id ?? null}
         installmentNumber={selectedForHistory?.number}
+      />
+
+      {/* Dialog de exclusão de parcela */}
+      <DeleteReceivableDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        receivable={selectedForDelete}
+        onSuccess={handleDeleteSuccess}
       />
     </TooltipProvider>
   );
