@@ -34,12 +34,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import {
   Collapsible,
   CollapsibleContent,
@@ -357,7 +352,6 @@ function FlexiblePaymentDialogInner({
   }, [fourComponentDue, watchAllocPenalty, watchAllocLateInterest, watchAllocContractInterest, watchAllocPrincipal, watchDiscountPenalty, watchDiscountLateInterest, watchDiscountContractInterest, watchDiscountPrincipal]);
 
   const hasRemainingBalance = useMemo(() => !isZeroMoney(balanceBreakdown.total), [balanceBreakdown.total]);
-  const hasManualAdjustment = useMemo(() => !isZeroMoney(manualAdjustment), [manualAdjustment]);
   const hasValidDeferDate = Boolean(watchDeferToDate && !Number.isNaN(watchDeferToDate.getTime()));
   const isSubmitting = isSaving || flexiblePayment.isPending;
 
@@ -399,6 +393,8 @@ function FlexiblePaymentDialogInner({
   const manualAdjustment = useMemo(() => {
     return round2(watchFinalNewAmount - newInstallmentBaseAmount);
   }, [watchFinalNewAmount, newInstallmentBaseAmount]);
+
+  const hasManualAdjustment = useMemo(() => !isZeroMoney(manualAdjustment), [manualAdjustment]);
 
 
   // Alocação do valor a postergar — use combined interest + principal for defer components
@@ -769,10 +765,10 @@ function FlexiblePaymentDialogInner({
                   <span>Total alocado:</span>
                   <span className={cn(
                     "font-medium",
-                    allocationDifference !== 0 && "text-destructive"
+                    !isZeroMoney(allocationDifference) && "text-destructive"
                   )}>
                     {safeCurrency(totalAllocated)}
-                    {allocationDifference !== 0 && (
+                    {!isZeroMoney(allocationDifference) && (
                       <span className="ml-2 text-xs">
                         (dif: {safeCurrency(allocationDifference)})
                       </span>

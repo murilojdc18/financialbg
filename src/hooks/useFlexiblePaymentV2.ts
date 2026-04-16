@@ -138,8 +138,8 @@ export function useFlexiblePaymentV2() {
       // Configuração de juros/multa da operação
       const config: LateFeeConfig = {
         lateGraceDays: receivable.operations.late_grace_days ?? 0,
-        latePenaltyPercent: Number(receivable.operations.late_penalty_percent) ?? 10,
-        lateInterestDailyPercent: Number(receivable.operations.late_interest_daily_percent) ?? 0.5,
+        latePenaltyPercent: Number(receivable.operations.late_penalty_percent ?? 10),
+        lateInterestDailyPercent: Number(receivable.operations.late_interest_daily_percent ?? 0.5),
       };
 
       // Calcular encargos na data do pagamento (para referência)
