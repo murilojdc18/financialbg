@@ -89,6 +89,7 @@ export function ReceivablesFilters({
               role="combobox"
               aria-expanded={clientPopoverOpen}
               className="w-full justify-between mt-1.5 font-normal"
+              data-testid="filter-client-trigger"
             >
               <span className="truncate">{selectedClientName}</span>
               <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />

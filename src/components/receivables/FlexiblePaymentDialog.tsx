@@ -671,6 +671,7 @@ function FlexiblePaymentDialogInner({
                         onValueChange={field.onChange}
                         showPrefix
                         placeholder="0,00"
+                        data-testid="payment-amount-total"
                       />
                     </FormControl>
                     <FormMessage />
@@ -904,7 +905,7 @@ function FlexiblePaymentDialogInner({
                 <Separator className="my-1" />
                 <div className="flex justify-between font-semibold text-sm">
                   <span>Total remanescente:</span>
-                  <span className={balanceBreakdown.total > 0 ? "text-warning" : "text-green-600"}>
+                  <span data-testid="payment-remaining-total" className={balanceBreakdown.total > 0 ? "text-warning" : "text-green-600"}>
                     {safeCurrency(balanceBreakdown.total)}
                   </span>
                 </div>
