@@ -707,6 +707,7 @@ function FlexiblePaymentDialogInner({
                             value={safeNumber(field.value)}
                             onValueChange={field.onChange}
                             className="h-8 text-sm"
+                            data-testid="payment-alloc-penalty"
                           />
                         </FormControl>
                       </FormItem>
@@ -723,6 +724,7 @@ function FlexiblePaymentDialogInner({
                             value={safeNumber(field.value)}
                             onValueChange={field.onChange}
                             className="h-8 text-sm"
+                            data-testid="payment-alloc-late-interest"
                           />
                         </FormControl>
                       </FormItem>
@@ -756,6 +758,7 @@ function FlexiblePaymentDialogInner({
                             value={safeNumber(field.value)}
                             onValueChange={field.onChange}
                             className="h-8 text-sm"
+                            data-testid="payment-alloc-principal"
                           />
                         </FormControl>
                       </FormItem>
