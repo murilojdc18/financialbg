@@ -707,6 +707,7 @@ function FlexiblePaymentDialogInner({
                             value={safeNumber(field.value)}
                             onValueChange={field.onChange}
                             className="h-8 text-sm"
+                            data-testid="payment-alloc-penalty"
                           />
                         </FormControl>
                       </FormItem>
@@ -723,6 +724,7 @@ function FlexiblePaymentDialogInner({
                             value={safeNumber(field.value)}
                             onValueChange={field.onChange}
                             className="h-8 text-sm"
+                            data-testid="payment-alloc-late-interest"
                           />
                         </FormControl>
                       </FormItem>
@@ -756,6 +758,7 @@ function FlexiblePaymentDialogInner({
                             value={safeNumber(field.value)}
                             onValueChange={field.onChange}
                             className="h-8 text-sm"
+                            data-testid="payment-alloc-principal"
                           />
                         </FormControl>
                       </FormItem>
@@ -765,13 +768,13 @@ function FlexiblePaymentDialogInner({
                 
                 <div className="flex justify-between text-sm pt-2 border-t">
                   <span>Total alocado:</span>
-                  <span className={cn(
+                  <span data-testid="payment-total-allocated" className={cn(
                     "font-medium",
                     !isZeroMoney(allocationDifference) && "text-destructive"
                   )}>
                     {safeCurrency(totalAllocated)}
                     {!isZeroMoney(allocationDifference) && (
-                      <span className="ml-2 text-xs">
+                      <span className="ml-2 text-xs" data-testid="payment-alloc-diff">
                         (dif: {safeCurrency(allocationDifference)})
                       </span>
                     )}
@@ -1297,7 +1300,7 @@ function FlexiblePaymentDialogInner({
 
               {/* Erros de validação */}
               {validationErrors.length > 0 && (
-                <div className="rounded-md border border-destructive bg-destructive/10 p-3">
+                <div data-testid="payment-validation-errors" className="rounded-md border border-destructive bg-destructive/10 p-3">
                   {validationErrors.map((error, i) => (
                     <p key={i} className="text-sm text-destructive">{error}</p>
                   ))}
@@ -1316,6 +1319,7 @@ function FlexiblePaymentDialogInner({
                 <Button 
                   type="submit" 
                   disabled={isSubmitting || !canSubmit}
+                  data-testid="payment-submit"
                 >
                   {isSubmitting ? (
                     <>
